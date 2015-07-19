@@ -21,7 +21,12 @@
  *
  * Author : Laird Shaw.
  * Date   : 2015-07-19.
- * Version: 1.
+ * Version: 2.
+ *
+ * Changelog:
+ *
+ * Version 2, 2015-07-19: Added trial sampling. Allowed arousal reset/increment to be floats.
+ * Version 1, 2015-07-19: Initial release.
  */
 ?>
 <!DOCTYPE html>
@@ -70,6 +75,8 @@ if (!isset($_GET['num_trials'])) {
 	<td><input type="text" id="id.rounding_precision" name="rounding_precision" value="6"></td>
 </tr>
 </table>
+<label for="id.sample_inc">Within sequences, sample every </label> <input type="text" id="id.sample_inc" name="sample_inc" value="1">
+<label for="id.sample_inc">trials, starting from (leftmost) trial number</label> <input type="text" id="id.sample_start" name="sample_start" value="1"><br />
 <input type="checkbox" id="id.show_details" name="show_details"><label for="id.show_details">Show details including averages associated with each sequence, and lists of averages associated with each number of calm trials. Warning: this will result in many rows of sequences for even relatively small numbers of trials: 2 to the power of the value you enter above for number of trials per sequence. This is e.g. 1024 rows of sequences when you enter 10 trials per sequence, and about a million rows when you enter 20 trials per sequence.</label><br />
 <input type="submit" name="submit" value="Go">
 </form>
@@ -77,9 +84,13 @@ if (!isset($_GET['num_trials'])) {
 } else {
 	$avgs_per_seq = $stats_per_num_calm = array();
 	$num_trials = (int)$_GET['num_trials'];
-	$reset_arousal = (int)$_GET['reset_arousal'];
-	$arousal_inc = (int)$_GET['arousal_inc'];
+	$reset_arousal = (float)$_GET['reset_arousal'];
+	$arousal_inc = (float)$_GET['arousal_inc'];
 	$rounding_precision = (int)$_GET['rounding_precision'];
+	$sample_start = (int)$_GET['sample_start'];
+	if ($sample_start < 1) $sample_start = 1;
+	$sample_inc = (int)$_GET['sample_inc'];
+	if ($sample_inc <1) $sample_inc = 1;
 	$show_details = isset($_GET['show_details']);
 	calc_stats_r('', 0, $num_trials, $avgs_per_seq, $stats_per_num_calm);
 	calc_final_per_num_calm_stats($stats_per_num_calm);
@@ -97,11 +108,13 @@ if (!isset($_GET['num_trials'])) {
 
 <p>Number of decimal places to round to: <?php echo $rounding_precision; ?>.</p>
 
+<p>Sampling within each sequence every <?php echo $sample_inc; ?> trials beginning from (leftmost) trial <?php echo $sample_start; ?>.</p>
+
 <p>C = calm trial (after which arousal increments).</p>
 
 <p>E = emotional trial (after which arousal resets).</p>
 
-<p>Arousal starts at reset level. Arousal level for a particular trial is the arousal level <i>preceding</i> that trial. Averages are with respect to these preceding arousal levels across all calm/emotional trials in the sequence.</p> 
+<p>Arousal starts at reset level. Arousal level for a particular trial is the arousal level <i>preceding</i> that trial. Averages are with respect to these preceding arousal levels across all <i>sampled</i> calm/emotional trials in the sequence.</p> 
 
 <?php
 	if ($show_details) {
@@ -215,21 +228,25 @@ function calc_stats_r($seq_part, $depth, $num_trials, &$avgs_per_seq, &$stats_pe
 }
 
 function add_seq($sequence, &$avgs_per_seq, &$stats_per_num_calm) {
-	global $reset_arousal;
-	global $arousal_inc;
+	global $reset_arousal, $arousal_inc, $sample_start, $sample_inc;
 
-	$counts = $sums = array('C' => 0, 'E' => 0);
+	$counts = $sampled_counts = $sampled_sums = array('C' => 0, 'E' => 0);
 	$arousal = $reset_arousal;
+	$trial_num = 1;
 	foreach (str_split($sequence) as $trial_type) {
-		$sums[$trial_type] += $arousal;
 		$counts[$trial_type]++;
+		if ($trial_num >= $sample_start && ($trial_num - $sample_start) % $sample_inc == 0) {
+			$sampled_sums[$trial_type] += $arousal;
+			$sampled_counts[$trial_type]++;
+		}
 		if ($trial_type == 'C') {
 			$arousal += $arousal_inc;
 		} else	$arousal = $reset_arousal;
+		$trial_num++;
 	}
 	$avgs = array(
-		'C' => ($counts['C'] === 0 ? 'n/a' : $sums['C']/$counts['C']),
-		'E' => ($counts['E'] === 0 ? 'n/a' : $sums['E']/$counts['E']),
+		'C' => ($sampled_counts['C'] === 0 ? 'n/a' : $sampled_sums['C']/$sampled_counts['C']),
+		'E' => ($sampled_counts['E'] === 0 ? 'n/a' : $sampled_sums['E']/$sampled_counts['E']),
 	);
 	$avgs_per_seq[$sequence] = $avgs;
 	if (!isset($stats_per_num_calm[$counts['C']])) {
