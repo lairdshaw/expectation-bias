@@ -21,11 +21,12 @@
  * 2. Deny anybody else the right to falsely claim authorship over it other than of any changes that they make to it.
  *
  * Author : Laird Shaw.
- * Date   : 2015-07-22.
- * Version: 3.
+ * Date   : 2015-07-23.
+ * Version: 4.
  *
  * Changelog:
  *
+ * Version 4, 2015-07-23: Minor bugfix: '0%' => 'n/a'.
  * Version 3, 2015-07-22: Added several new columns to the tables, including weighting columns.
  *                        Added different types of calculations of expectation bias in a table at the end, including
  *                         a calculation by Wackermann's formula, the result of which is scaled for arousal increments
@@ -241,7 +242,7 @@ if ($wackerman_label_appendage) {
 <table class="tbl_data">
 <tr><th>Method</th><th>Average bias in per-sequence average arousals for emotional versus calm trials</th><th>Average of per-sequence average arousals for calm trials</th><th>Expectation bias as a percentage of average calm arousal</th></tr>
 <tr><td>Average of per sequence differences (excluding n/a's)</td><td><?php echo rounded_or_na($per_seq_avgs['avg_diff_avgs']); ?></td><td><?php echo rounded_or_na($per_seq_avgs['avg_C_avgs_for_defined_diffs']); ?></td><td><?php echo (($per_seq_avgs['avg_C_avgs_for_defined_diffs'] !== 0 && $per_seq_avgs['avg_diff_avgs'] !== 'n/a') ? rounded_or_na($per_seq_avgs['avg_diff_avgs'] / $per_seq_avgs['avg_C_avgs_for_defined_diffs'] * 100).'%' : 'n/a'); ?></td></tr>
-<tr><td>Average of per sequence differences (setting n/a's to zero)</td><td><?php echo $per_seq_avgs['avg_diff_avgs'] !== 'n/a' ? rounded_or_na($per_seq_avgs['avg_diff_avgs'] * $per_seq_summary_stats['count_diff_avgs'] / pow(2, $num_trials)) : 0; ?></td><td><?php echo rounded_or_na($avg_C_avgs_setting_na_to_zero); ?></td><td><?php /*same formula as for above row since we scale denominator and numerator by the same factor*/echo ($per_seq_avgs['avg_C_avgs_for_defined_diffs'] != 0 ? rounded_or_na($per_seq_avgs['avg_diff_avgs'] / $per_seq_avgs['avg_C_avgs_for_defined_diffs'] * 100).'%' : '0%'); ?></td></tr>
+<tr><td>Average of per sequence differences (setting n/a's to zero)</td><td><?php echo $per_seq_avgs['avg_diff_avgs'] !== 'n/a' ? rounded_or_na($per_seq_avgs['avg_diff_avgs'] * $per_seq_summary_stats['count_diff_avgs'] / pow(2, $num_trials)) : 0; ?></td><td><?php echo rounded_or_na($avg_C_avgs_setting_na_to_zero); ?></td><td><?php /*same formula as for above row since we scale denominator and numerator by the same factor*/echo ($per_seq_avgs['avg_C_avgs_for_defined_diffs'] != 0 ? rounded_or_na($per_seq_avgs['avg_diff_avgs'] / $per_seq_avgs['avg_C_avgs_for_defined_diffs'] * 100).'%' : 'n/a'); ?></td></tr>
 <tr><td>Difference of per sequence averages (excluding n/a's)</td><td><?php echo rounded_or_na($per_seq_diff_avg_avgs); ?></td><td><?php echo rounded_or_na($per_seq_avgs['avg_C_avgs']); ?></td><td><?php echo ($per_seq_avgs['avg_C_avgs'] !== 0 ? rounded_or_na($per_seq_diff_avg_avgs / $per_seq_avgs['avg_C_avgs'] * 100).'%' : 'n/a'); ?></td></tr>
 <tr><td>Weighted averages (excluding n/a's)</td><td><?php echo rounded_or_na($diff_weighted_avgs_unweighted); ?></td><td><?php echo rounded_or_na($C_weighted_avgs_unweighted); ?></td><td><?php echo ($C_weighted_avgs_unweighted !== 'n/a' && $diff_weighted_avgs_unweighted !== 'n/a') ? rounded_or_na($diff_weighted_avgs_unweighted/$C_weighted_avgs_unweighted*100).'%' : 'n/a'; ?></td></tr>
 <tr><td>Wackermann's formula<?php echo $wackerman_label_appendage; ?></td><td><?php echo rounded_or_na($wackermann_diff); ?></td><td><?php if (!$are_sampling) echo rounded_or_na($avg_C_avgs_setting_na_to_zero); ?></td><td><?php if (!$are_sampling) echo $avg_C_avgs_setting_na_to_zero !== 'n/a' ? rounded_or_na($wackermann_diff/$avg_C_avgs_setting_na_to_zero*100).'%' : 'n/a'; ?></td></tr>
