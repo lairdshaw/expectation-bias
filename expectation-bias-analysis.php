@@ -26,11 +26,18 @@
  * 2. Deny anybody else the right to falsely claim authorship over it other than of any changes that they make to it.
  *
  * Author : Laird Shaw.
- * Date   : 2015-07-26.
- * Version: 5.
+ * Date   : 2015-07-27.
+ * Version: 6.
  *
  * Changelog:
  *
+ * Version 6, 2015-07-27: Bugfix: final table shouldn't have had fixed columns.
+ *                        Bugfix: one of the difference summary cells was wrong due to an extraneous
+ *                                negation symbol.
+ *                        Bugfix: don't weight per-number-of-calm-trial sums by #sequences, only by probability.
+ *                        Minor bugfix: test for division by 0 with != rather than !== because the zero value
+ *                         might be a float rather than an integer.
+ *                        Added missing rounding for the difference rows.
  * Version 5, 2015-07-26: Added support for varying the probability of emotional (and thus calm) trials.
  *                        Added several columns for weighting by probability (and #sequences).
  *                        Added some summary rows for differences.
@@ -58,7 +65,7 @@
 //<![CDATA[
 if (typeof $ == 'function') {
 	$(document).ready(function() {
-		$('.tbl_data').fixedtableheader({
+		$('.tbl_fixed').fixedtableheader({
 			headerrowsize: 3,
 			fixedcolssize: 2
 		});
@@ -149,7 +156,7 @@ if (isset($_GET['num_trials'])) {
 	$per_seq_diff_avg_avgs = diff_or_na($per_seq_avgs['avg_E_avgs'], $per_seq_avgs['avg_C_avgs']);
 	$per_seq_diff_avg_sums = diff_or_na($per_seq_avgs['avg_E_sums'], $per_seq_avgs['avg_C_sums']);
 	$per_seq_diff_avg_avgs_prob = diff_or_na($per_seq_avgs['avg_E_avgs_prob'], $per_seq_avgs['avg_C_avgs_prob']);
-	$per_seq_diff_avg_sums_prob = diff_or_na($per_seq_avgs['avg_E_sums_prob'], !$per_seq_avgs['avg_C_sums_prob']);
+	$per_seq_diff_avg_sums_prob = diff_or_na($per_seq_avgs['avg_E_sums_prob'], $per_seq_avgs['avg_C_sums_prob']);
 	$per_seq_diff_sum_avgs = diff_or_na($per_seq_summary_stats['sum_E_avgs'], $per_seq_summary_stats['sum_C_avgs']);
 	$per_seq_diff_sum_sums = diff_or_na($per_seq_summary_stats['sum_E_sums'], $per_seq_summary_stats['sum_C_sums']);
 	$per_seq_diff_sum_avgs_prob = diff_or_na($per_seq_summary_stats['sum_E_avgs_prob'], $per_seq_summary_stats['sum_C_avgs_prob']);
@@ -192,7 +199,7 @@ if (isset($_GET['num_trials'])) {
 ?>
 <h2>Per-sequence arousals</h2>
 
-<table class="tbl_data" id="id_per_seq_stats">
+<table class="tbl_data tbl_fixed" id="id_per_seq_stats">
 <tr><th>Sequence</th><th>Probability</th><th colspan="4">Average arousal</th><th colspan="2">Difference of averages</th><th colspan="4">Sum of arousals</th><th colspan="2">Difference of sums</th></tr>
 <tr><th></th><th></th><th colspan="2">Raw</th><th colspan="2">Weighted by probability</th><th>Raw</th><th>Weighted by probability</th><th colspan="2">Raw</th><th colspan="2">Weighted by probability</th><th>Raw</th><th>Weighted by probability</th></tr>
 <tr><th></th><th></th><th>C</th><th>E</th><th>C</th><th>E</th><th></th><th></th><th>C</th><th>E</th><th>C</th><th>E</th><th></th><th></th></tr>
@@ -203,8 +210,8 @@ if (isset($_GET['num_trials'])) {
 		echo '<tr><th>Totals:</th><th>'.rounded_or_na($per_seq_summary_stats['sum_prob']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_C_avgs']).'<th>'.rounded_or_na($per_seq_summary_stats['sum_E_avgs']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_C_avgs_prob']).'<th>'.rounded_or_na($per_seq_summary_stats['sum_E_avgs_prob']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_diff_avgs']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_diff_avgs_prob']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_C_sums']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_E_sums']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_C_sums_prob']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_E_sums_prob']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_diff_sums']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_diff_sums_prob']).'</th></tr>'."\n";
 		echo '<tr><th>Averages:</th><th>'.rounded_or_na($per_seq_avgs['avg_prob']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_C_avgs']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_E_avgs']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_C_avgs_prob']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_E_avgs_prob']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_diff_avgs']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_diff_avgs_prob']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_C_sums']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_E_sums']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_C_sums_prob']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_E_sums_prob']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_diff_sums']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_diff_sums_prob']).'</th></tr>'."\n";
 
-		echo '<tr><th>Differences (Totals):</th><th></th><th colspan="2">'.$per_seq_diff_sum_avgs.'</th><th colspan="2">'.$per_seq_diff_sum_avgs_prob.'</th><th></th><th></th><th colspan="2">'.$per_seq_diff_sum_sums.'</th><th colspan="2">'.$per_seq_diff_sum_sums_prob.'</th><th></th><th></th></tr>'."\n";
-		echo '<tr><th>Differences (Averages):</th><th></th><th colspan="2">'.$per_seq_diff_avg_avgs.'</th><th colspan="2">'.$per_seq_diff_avg_avgs_prob.'</th><th></th><th></th><th colspan="2">'.$per_seq_diff_avg_sums.'</th><th colspan="2">'.$per_seq_diff_avg_sums_prob.'</th><th></th><th></th></tr>'."\n";
+		echo '<tr><th>Differences (Totals):</th><th></th><th colspan="2">'.rounded_or_na($per_seq_diff_sum_avgs).'</th><th colspan="2">'.rounded_or_na($per_seq_diff_sum_avgs_prob).'</th><th></th><th></th><th colspan="2">'.rounded_or_na($per_seq_diff_sum_sums).'</th><th colspan="2">'.rounded_or_na($per_seq_diff_sum_sums_prob).'</th><th></th><th></th></tr>'."\n";
+		echo '<tr><th>Differences (Averages):</th><th></th><th colspan="2">'.rounded_or_na($per_seq_diff_avg_avgs).'</th><th colspan="2">'.rounded_or_na($per_seq_diff_avg_avgs_prob).'</th><th></th><th></th><th colspan="2">'.rounded_or_na($per_seq_diff_avg_sums).'</th><th colspan="2">'.rounded_or_na($per_seq_diff_avg_sums_prob).'</th><th></th><th></th></tr>'."\n";
 ?>
 </table>
 
@@ -212,7 +219,7 @@ if (isset($_GET['num_trials'])) {
 
 <p>As extracted from the above "Per-sequence arousals" table.</p>
 
-<table class="tbl_data">
+<table class="tbl_data tbl_fixed">
 <tr><th>#C</th><th>#E</th><th>Probability</th><th colspan="4">Average Arousals</th></tr>
 <tr><th></th><th></th><th></th><th colspan="2">Raw</th><th colspan="2">Weighted by probability</th></tr>
 <tr><th></th><th></th><th></th><th>C</th><th>E</th><th>C</th><th>E</th></tr>
@@ -227,7 +234,7 @@ if (isset($_GET['num_trials'])) {
 
 <p>As extracted from the above "Per-sequence arousals" table.</p>
 
-<table class="tbl_data">
+<table class="tbl_data tbl_fixed">
 <tr><th>#C</th><th>#E</th><th>Probability</th><th colspan="4">Sums of Arousals</th></tr>
 <tr><th></th><th></th><th></th><th colspan="2">Raw</th><th colspan="2">Weighted by probability</th></tr>
 <tr><th></th><th></th><th></th><th>C</th><th>E</th><th>C</th><th>E</th></tr>
@@ -250,13 +257,13 @@ if (isset($_GET['num_trials'])) {
 	}
 ?>
 
-<table class="tbl_data" id="id_per_num_calm_stats">
+<table class="tbl_data tbl_fixed" id="id_per_num_calm_stats">
 <tr><th>#C</th><th>#E</th><th>#sequences</th><th>Probability</th><th>Probability weighted by #sequences</th><th colspan="4">Average of per-sequence average arousals</th><th colspan="4">Sum of per-sequence average arousals</th><th colspan="4">Average of per-sequence sums of arousal</th><th colspan="4">Sum of per-sequence sums of arousal</th></tr>
-<tr><th></th><th></th><th></th><th></th><th></th><th colspan="2">Raw</th><th colspan="2">Weighted by #sequences and probability</th><th colspan="2">Raw</th><th colspan="2">Weighted by #sequences and probability</th><th colspan="2">Raw</th><th colspan="2">Weighted by #sequences and probability</th><th colspan="2">Raw</th><th colspan="2">Weighted by #sequences and probability</th></tr>
+<tr><th></th><th></th><th></th><th></th><th></th><th colspan="2">Raw</th><th colspan="2">Weighted by #sequences and probability</th><th colspan="2">Raw</th><th colspan="2">Weighted by probability</th><th colspan="2">Raw</th><th colspan="2">Weighted by #sequences and probability</th><th colspan="2">Raw</th><th colspan="2">Weighted by probability</th></tr>
 <tr><th></th><th></th><th></th><th></th><th></th><th>C</th><th>E</th><th>C</th><th>E</th><th>C</th><th>E</th><th>C</th><th>E</th><th>C</th><th>E</th><th>C</th><th>E</th><th>C</th><th>E</th><th>C</th><th>E</th></tr>
 <?php
 	foreach ($per_num_calm_stats as $num_calm => $stats) {
-		echo "<tr><td>$num_calm</td><td>".($num_trials - $num_calm)."</td><td>{$stats['#seq']}</td><td>".rounded_or_na($stats['prob'])."</td><td>".rounded_or_na($stats['prob']*$stats['#seq'])."</td><td>".rounded_or_na($stats['C_avg_avgs'])."</td><td>".rounded_or_na($stats['E_avg_avgs'])."</td><td>".rounded_or_na($stats['C_weighted_avg_avgs'])."</td><td>".rounded_or_na($stats['E_weighted_avg_avgs'])."</td><td>".rounded_or_na($stats['C_sum_avgs'])."</td><td>".rounded_or_na($stats['E_sum_avgs'])."</td><td>".rounded_or_na($stats['C_sum_avgs']*$stats['prob']*$stats['#seq'])."</td><td>".rounded_or_na($stats['E_sum_avgs']*$stats['prob']*$stats['#seq'])."</td><td>".rounded_or_na($stats['C_avg_sums'])."</td><td>".rounded_or_na($stats['E_avg_sums'])."</td><td>".rounded_or_na($stats['C_avg_sums']*$stats['prob']*$stats['#seq'])."</td><td>".rounded_or_na($stats['E_avg_sums']*$stats['prob']*$stats['#seq'])."</td><td>".rounded_or_na($stats['C_sum_sums'])."</td><td>".rounded_or_na($stats['E_sum_sums'])."</td><td>".rounded_or_na($stats['C_sum_sums']*$stats['prob']*$stats['#seq'])."</td><td>".rounded_or_na($stats['E_sum_sums']*$stats['prob']*$stats['#seq'])."</td></tr>\n";
+		echo "<tr><td>$num_calm</td><td>".($num_trials - $num_calm)."</td><td>{$stats['#seq']}</td><td>".rounded_or_na($stats['prob'])."</td><td>".rounded_or_na($stats['prob']*$stats['#seq'])."</td><td>".rounded_or_na($stats['C_avg_avgs'])."</td><td>".rounded_or_na($stats['E_avg_avgs'])."</td><td>".rounded_or_na($stats['C_weighted_avg_avgs'])."</td><td>".rounded_or_na($stats['E_weighted_avg_avgs'])."</td><td>".rounded_or_na($stats['C_sum_avgs'])."</td><td>".rounded_or_na($stats['E_sum_avgs'])."</td><td>".rounded_or_na($stats['C_sum_avgs']*$stats['prob']*$stats['#seq'])."</td><td>".rounded_or_na($stats['E_sum_avgs']*$stats['prob']*$stats['#seq'])."</td><td>".rounded_or_na($stats['C_avg_sums'])."</td><td>".rounded_or_na($stats['E_avg_sums'])."</td><td>".rounded_or_na($stats['C_avg_sums']*$stats['prob'])."</td><td>".rounded_or_na($stats['E_avg_sums']*$stats['prob'])."</td><td>".rounded_or_na($stats['C_sum_sums'])."</td><td>".rounded_or_na($stats['E_sum_sums'])."</td><td>".rounded_or_na($stats['C_sum_sums']*$stats['prob'])."</td><td>".rounded_or_na($stats['E_sum_sums']*$stats['prob'])."</td></tr>\n";
 	}
 ?>
 <tr><th>Totals:</th><th></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_#seq']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_prob']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_#seq_prob']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_C_avg_avgs']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_E_avg_avgs']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_C_weighted_avg_avgs']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_E_weighted_avg_avgs']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_C_sum_avgs']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_E_sum_avgs']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_C_weighted_sum_avgs']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_E_weighted_sum_avgs']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_C_avg_sums']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_E_avg_sums']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_C_weighted_avg_sums']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_E_weighted_avg_sums']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_C_sum_sums']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_E_sum_sums']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_C_weighted_sum_sums']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_E_weighted_sum_sums']); ?></th></tr>
@@ -291,9 +298,9 @@ if (isset($_GET['num_trials'])) {
 
 <table class="tbl_data">
 <tr><th>Method</th><th>Average bias in per-sequence average arousals for emotional versus calm trials</th><th>Average of per-sequence average arousals for calm trials</th><th>Expectation bias as a percentage of average calm arousal</th></tr>
-<tr><td>Average of per sequence differences (excluding n/a's)</td><td><?php echo rounded_or_na($per_seq_summary_stats['sum_diff_avgs_prob']); ?></td><td><?php echo rounded_or_na($per_seq_summary_stats['sum_C_avgs_for_defined_diffs_prob']); ?></td><td><?php echo ($per_seq_summary_stats['sum_C_avgs_for_defined_diffs_prob'] !== 0 && $per_seq_summary_stats['sum_diff_avgs_prob'] !== 'n/a') ? rounded_or_na($per_seq_summary_stats['sum_diff_avgs_prob'] / $per_seq_summary_stats['sum_C_avgs_for_defined_diffs_prob'] * 100).'%' : 'n/a'; ?></td></tr>
-<tr><td>Average of per sequence differences (setting n/a's to zero)</td><td><?php echo rounded_or_na($per_seq_summary_stats['sum_diff_avgs_prob'] * $per_seq_summary_stats['count_diff_avgs_prob'] / pow(2, $num_trials)); ?></td><td><?php echo rounded_or_na($sum_C_avgs_prob_setting_na_to_zero); ?></td><td><?php /*same formula as for above row since we scale denominator and numerator by the same factor*/echo ($per_seq_summary_stats['sum_C_avgs_for_defined_diffs_prob'] != 0 ? rounded_or_na($per_seq_summary_stats['sum_diff_avgs_prob'] / $per_seq_summary_stats['sum_C_avgs_for_defined_diffs_prob'] * 100).'%' : 'n/a'); ?></td></tr>
-<tr><td>Wackermann's formula<?php echo $wackerman_label_appendage; ?></td><td><?php echo rounded_or_na($wackermann_diff); ?></td><td><?php if (!$are_sampling) echo rounded_or_na($per_seq_summary_stats['sum_C_avgs_for_defined_diffs_prob']); ?></td><td><?php if (!$are_sampling) echo $per_seq_summary_stats['sum_C_avgs_for_defined_diffs_prob'] !== 'n/a' ? rounded_or_na($wackermann_diff/$per_seq_summary_stats['sum_C_avgs_for_defined_diffs_prob']*100).'%' : 'n/a'; ?></td></tr>
+<tr><td>Average of per sequence differences (excluding n/a's)</td><td><?php echo rounded_or_na($per_seq_summary_stats['sum_diff_avgs_prob']); ?></td><td><?php echo rounded_or_na($per_seq_summary_stats['sum_C_avgs_for_defined_diffs_prob']); ?></td><td><?php echo ($per_seq_summary_stats['sum_C_avgs_for_defined_diffs_prob'] !=/*Not !== because might be a float*/ 0 && $per_seq_summary_stats['sum_C_avgs_for_defined_diffs_prob'] !== 'n/a' && $per_seq_summary_stats['sum_diff_avgs_prob'] !== 'n/a') ? rounded_or_na($per_seq_summary_stats['sum_diff_avgs_prob'] / $per_seq_summary_stats['sum_C_avgs_for_defined_diffs_prob'] * 100).'%' : 'n/a'; ?></td></tr>
+<tr><td>Average of per sequence differences (setting n/a's to zero)</td><td><?php echo rounded_or_na($per_seq_summary_stats['sum_diff_avgs_prob'] * $per_seq_summary_stats['count_diff_avgs_prob'] / pow(2, $num_trials)); ?></td><td><?php echo rounded_or_na($sum_C_avgs_prob_setting_na_to_zero); ?></td><td><?php /*same formula as for above row since we scale denominator and numerator by the same factor*/echo (($per_seq_summary_stats['sum_C_avgs_for_defined_diffs_prob'] !=/*Not !== because might be a float*/ 0 && $per_seq_summary_stats['sum_C_avgs_for_defined_diffs_prob'] !== 'n/a') ? rounded_or_na($per_seq_summary_stats['sum_diff_avgs_prob'] / $per_seq_summary_stats['sum_C_avgs_for_defined_diffs_prob'] * 100).'%' : 'n/a'); ?></td></tr>
+<tr><td>Wackermann's formula<?php echo $wackerman_label_appendage; ?></td><td><?php echo rounded_or_na($wackermann_diff); ?></td><td><?php if (!$are_sampling) echo rounded_or_na($per_seq_summary_stats['sum_C_avgs_for_defined_diffs_prob']); ?></td><td><?php if (!$are_sampling) echo ($per_seq_summary_stats['sum_C_avgs_for_defined_diffs_prob'] !=/*Not !== because might be a float*/ 0 && $per_seq_summary_stats['sum_C_avgs_for_defined_diffs_prob'] !== 'n/a') ? rounded_or_na($wackermann_diff/$per_seq_summary_stats['sum_C_avgs_for_defined_diffs_prob']*100).'%' : 'n/a'; ?></td></tr>
 <tr><td>Difference of per sequence averages (excluding n/a's)</td><td><?php echo rounded_or_na($per_seq_diff_sum_avgs_prob); ?></td><td><?php echo rounded_or_na($per_seq_summary_stats['sum_C_avgs_prob']); ?></td><td><?php echo ($per_seq_summary_stats['sum_C_avgs_prob'] !== 0 ? rounded_or_na($per_seq_diff_sum_avgs_prob / $per_seq_summary_stats['sum_C_avgs_prob'] * 100).'%' : 'n/a'); ?></td></tr>
 <tr><td>Weighted averages (excluding n/a's)</td><td><?php echo rounded_or_na($diff_weighted_avgs_unweighted); ?></td><td><?php echo rounded_or_na($C_weighted_avgs_unweighted); ?></td><td><?php echo ($C_weighted_avgs_unweighted !== 'n/a' && $diff_weighted_avgs_unweighted !== 'n/a') ? rounded_or_na($diff_weighted_avgs_unweighted/$C_weighted_avgs_unweighted*100).'%' : 'n/a'; ?></td></tr>
 </table>
@@ -559,7 +566,7 @@ function calc_final_per_num_calm_stats(&$per_num_calm_stats, &$per_num_calm_summ
 			}
 			$per_num_calm_summary_stats['sum_'.$trial_type.'_sum_avgs'] += $stats[$trial_type.'_sum_avgs'];
 			$per_num_calm_summary_stats['count_'.$trial_type.'_sum_avgs']++;
-			$per_num_calm_summary_stats['sum_'.$trial_type.'_weighted_sum_avgs'] += $stats[$trial_type.'_sum_avgs'] * $stats['prob'] * $stats['#seq'];
+			$per_num_calm_summary_stats['sum_'.$trial_type.'_weighted_sum_avgs'] += $stats[$trial_type.'_sum_avgs'] * $stats['prob'];
 			$per_num_calm_summary_stats['count_'.$trial_type.'_weighted_sum_avgs']++;
 			if ($stats[$trial_type.'_avg_sums'] !== 'n/a') {
 				$per_num_calm_summary_stats['sum_'.$trial_type.'_avg_sums'] += $stats[$trial_type.'_avg_sums'];
@@ -569,7 +576,7 @@ function calc_final_per_num_calm_stats(&$per_num_calm_stats, &$per_num_calm_summ
 			}
 			$per_num_calm_summary_stats['sum_'.$trial_type.'_sum_sums'] += $stats[$trial_type.'_sum_sums'];
 			$per_num_calm_summary_stats['count_'.$trial_type.'_sum_sums']++;
-			$per_num_calm_summary_stats['sum_'.$trial_type.'_weighted_sum_sums'] += $stats[$trial_type.'_sum_sums'] * $stats['prob'] * $stats['#seq'];
+			$per_num_calm_summary_stats['sum_'.$trial_type.'_weighted_sum_sums'] += $stats[$trial_type.'_sum_sums'] * $stats['prob'];
 			$per_num_calm_summary_stats['count_'.$trial_type.'_weighted_sum_sums']++;
 			if ($add_num_seq) {
 				$per_num_calm_summary_stats['sum_prob'] += $stats['prob'];
