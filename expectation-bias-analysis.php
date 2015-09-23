@@ -26,11 +26,18 @@
  * 2. Deny anybody else the right to falsely claim authorship over it other than of any changes that they make to it.
  *
  * Author : Laird Shaw.
- * Date   : 2015-08-12.
- * Version: 8.
+ * Date   : 2015-09-24
+ * Version: 9.
  *
  * Changelog:
  *
+ * Version 9, 2015-09-24: Added support for specifying the binary arousal model as an alternative to the existing
+ *                         linear arousal model.
+ *                        Added support for dropping sequences of all-emotional and all-calm trials.
+ *                        Added a lot of settings to toggle the display of the various tables, and where
+ *                         the static settings are output.
+ *                        Added a number_format() for output of number of random samples setting.
+ *                        Corrected some typos and edited various wordings.
  * Version 8, 2015-08-12: Added support for random sampling from the full set of experiments/sequences rather than,
  *                         as had been default until now, using the full set of experiments/sequences.
  *                        Corrected bias% calculations to be with respect to average arousal over *all* trials,
@@ -105,21 +112,30 @@ if (typeof $ == 'function') {
 	
 <?php
 /* Set defaults */
-$num_seq_per_exp    = 1;
-$num_trials_per_seq = 7;
-$reset_arousal      = 0;
-$arousal_inc        = 1;
-$prob_e             = 0.5;
-$rounding_precision = 6;
-$bc_scale_factor    = 200;
-$sample_start       = 1;
-$sample_inc         = 1;
-$show_details       = false;
-$show_per_num_calm  = true;
-$num_samples        = 10000;
-$model              = 'full_seq';
+$num_seq_per_exp         = 1;
+$num_trials_per_seq      = 7;
+$reset_arousal           = 0;
+$arousal_inc             = 1;
+$prob_e                  = 0.5;
+$rounding_precision      = 6;
+$bc_scale_factor         = 200;
+$sample_start            = 1;
+$sample_inc              = 1;
+$drop_all_equal_seqs     = false;
+$show_sequence_table     = false;
+$hide_all_but_summary    = false;
+$show_per_num_calm_lists = false;
+$show_per_num_calm       = false;
+$show_expectation_bias   = true;
+$settings_list_at_bottom = false;
+$num_samples             = 10000;
+$sequence_sampling_type  = 'full_seq';
+$arousal_model           = 'linear';
 
 if (isset($_GET['num_trials_per_seq'])) {
+	/* Start timing */
+	$ts_start = microtime(true);
+
 	/* Initialise data structures */
 	$per_seq_stats = $per_num_calm_stats = $per_num_calm_summary_stats = array();
 	$per_seq_summary_stats = array(
@@ -148,7 +164,8 @@ if (isset($_GET['num_trials_per_seq'])) {
 		'sum_diff_avgs_prob'   => 0,
 		'count_diff_avgs_prob' => 0,
 		'sum_diff_sums_prob'   => 0,
-		'sum_all_avgs_for_defined_diffs_prob'   => 0,
+		'count_diff_sums_prob' => 0,
+		'sum_all_avgs_for_defined_diffs_prob' => 0,
 	);
 
 	/* Parse input */
@@ -169,16 +186,22 @@ if (isset($_GET['num_trials_per_seq'])) {
 	if ($sample_start < 1) $sample_start = 1;
 	$sample_inc = (int)$_GET['sample_inc'];
 	if ($sample_inc < 1) $sample_inc = 1;
-	$show_details = isset($_GET['show_details']);
-	$show_per_num_calm = isset($_GET['show_per_num_calm']);
+	$drop_all_equal_seqs     = ($_GET['drop_all_equal_seqs'] == 'yes');
+	$show_sequence_table     = isset($_GET['show_sequence_table']);
+	$hide_all_but_summary    = isset($_GET['hide_all_but_summary']);
+	$show_per_num_calm_lists = isset($_GET['show_per_num_calm_lists']);
+	$show_expectation_bias   = isset($_GET['show_expectation_bias']);
+	$show_per_num_calm       = isset($_GET['show_per_num_calm']);
+	$settings_list_at_bottom = isset($_GET['settings_list_at_bottom']);
 	$num_samples = (int)$_GET['num_samples'];
 	if ($num_samples < 1) $num_samples = 1;
-	$model = $_GET['model'] == 'full_seq' ? 'full_seq' : 'sample';
+	$sequence_sampling_type = $_GET['sequence_sampling_type'] == 'full_seq' ? 'full_seq' : 'sample';
+	$arousal_model = $_GET['arousal_model'] == 'binary' ? 'binary' : 'linear';
 
 	/* Iterate over all the sequences and gather the stats */
-	if ($model == 'full_seq') {
-		calc_stats_r('', 0, $num_trials_per_seq * $num_seq_per_exp, $per_seq_stats, $per_num_calm_stats, $per_seq_summary_stats);
-	} else	calc_stats_by_sampling($num_samples, $num_trials_per_seq * $num_seq_per_exp, $per_seq_stats, $per_num_calm_stats, $per_seq_summary_stats);
+	if ($sequence_sampling_type == 'full_seq') {
+		calc_stats_r('', 0, $num_trials_per_seq * $num_seq_per_exp, $per_seq_stats, $per_num_calm_stats, $per_seq_summary_stats, $arousal_model, $drop_all_equal_seqs);
+	} else	calc_stats_by_sampling($num_samples, $num_trials_per_seq * $num_seq_per_exp, $per_seq_stats, $per_num_calm_stats, $per_seq_summary_stats, $arousal_model, $drop_all_equal_seqs);
 
 	/* Calculate stats for the per-number-of-calm/emotional-trials summary table if necessary */
 	if ($show_per_num_calm) {
@@ -187,7 +210,7 @@ if (isset($_GET['num_trials_per_seq'])) {
 	}
 
 	/* Calculate per-sequence/experiment averages and differences of overall averages/sums if necessary */
-	if ($show_details) {
+	if ($show_sequence_table) {
 		$per_seq_avgs = get_avgs($per_seq_summary_stats, array('prob', 'C_avgs', 'E_avgs', 'diff_avgs', 'C_sums', 'E_sums', 'diff_sums', 'C_avgs_prob', 'E_avgs_prob', 'diff_avgs_prob', 'C_sums_prob', 'E_sums_prob', 'diff_sums_prob'));
 
 		$per_seq_diff_avg_avgs = diff_or_na($per_seq_avgs['avg_E_avgs'], $per_seq_avgs['avg_C_avgs']);
@@ -215,52 +238,22 @@ if (isset($_GET['num_trials_per_seq'])) {
 	}
 
 	/* Set number of total samples */
-	$tot_samples = ($model == 'sample' ? $num_samples : pow(2, $num_trials_per_seq * $num_seq_per_exp));
+	$tot_samples = ($sequence_sampling_type == 'sample' ? $num_samples : pow(2, $num_trials_per_seq * $num_seq_per_exp));
 
 	/* Set footnote if necessary */
-	$fn1       = ($model == 'sample' && $show_details) ? '<sup><a href="#footnote1">[1]</a></sup>' : '';
-	$footnote1 = ($model == 'sample' && $show_details) ? '<h2>Footnotes</h2><p id="footnote1">[1] After unweighting (dividing) by sum of per-'.$lbl_seq_or_exp.' probabilities.</p>' : '';
+	$fn1       = ($sequence_sampling_type == 'sample' && $show_sequence_table) ? '<sup><a href="#footnote1">[1]</a></sup>' : '';
+	$footnote1 = ($sequence_sampling_type == 'sample' && $show_sequence_table) ? '<h2>Footnotes</h2><p id="footnote1">[1] After unweighting (dividing) by sum of per-'.$lbl_seq_or_exp.' probabilities.</p>' : '';
 
-	/* Display settings for the current set of statistics */
-?>
+	$ts_end = microtime(true);
+	$duration = $ts_end - $ts_start;
 
-<p>Calculating outcome using <?php echo ($model == 'full_seq' ? 'the full set of sequences' : "a random sample of $num_samples of the full set of sequences").'.'; ?></p>
-
-<p>Method of experimental analysis: <?php echo ($num_seq_per_exp == 1 ? 'per-sequence' : 'pooled'); ?> averaging.</p>
-
-<?php
-	if ($num_seq_per_exp != 1) {
-?>
-<p>Number of sequences  per experiment: <?php echo $num_seq_per_exp; ?>.</p>
-
-<?php
+	/* Show the settings used for this run of the script if we are showing them up top */
+	if (!$settings_list_at_bottom) {
+		output_settings($sequence_sampling_type, $num_samples, $num_seq_per_exp, $num_trials_per_seq, $arousal_model, $reset_arousal, $arousal_inc, $rounding_precision, $bc_scale_factor, $lbl_seq_or_exp, $sample_inc, $sample_start, $prob_e, $drop_all_equal_seqs);
 	}
-?>
-<p>Number of trials per sequence: <?php echo $num_trials_per_seq; ?>.</p>
 
-<p>Reset arousal level: <?php echo $reset_arousal; ?>.</p>
-
-<p>Arousal increment: <?php echo $arousal_inc; ?>.</p>
-
-<p>Number of decimal places to round to: <?php echo $rounding_precision; ?>.</p>
-
-<p>Arbitrary precision maths scaling factor (if Wackermann's formula gives zero, you need to increase this): <?php echo $bc_scale_factor; ?>.</p>
-
-<p>Sampling within each <?php echo $lbl_seq_or_exp; ?> every <?php echo $sample_inc; ?> trials beginning from (leftmost) trial <?php echo $sample_start; ?>.</p>
-
-<p>E = emotional trial (after which arousal resets).</p>
-
-<p>C = calm trial (after which arousal increments).</p>
-
-<p>Probability(E) = <?php echo $prob_e; ?>.</p>
-
-<p>Probability(C) = (1 - Probability(E)) = <?php echo (1 - $prob_e); ?>.</p>
-
-<p>Arousal starts at reset level. Arousal level for a particular trial is the arousal level <i>preceding</i> that trial. Averages are with respect to these preceding arousal levels across all <i>sampled</i> calm/emotional trials in the sequence.</p> 
-
-<?php
-	/* Show per-sequence/experiment summary table, and per-number-of-calm/emotional-trials sum and average listing tables, if necessary */
-	if ($show_details) {
+	/* Show the per-sequence/experiment summary table if necessary */
+	if ($show_sequence_table) {
 ?>
 <h2>Per-<?php echo $lbl_seq_or_exp; ?> arousals</h2>
 
@@ -269,21 +262,29 @@ if (isset($_GET['num_trials_per_seq'])) {
 <tr><th></th><th></th><th colspan="2">Raw</th><th colspan="2">Weighted by probability</th><th>Raw</th><th>Weighted by probability</th><th colspan="2">Raw</th><th colspan="2">Weighted by probability</th><th>Raw</th><th>Weighted by probability</th></tr>
 <tr><th></th><th></th><th>C</th><th>E</th><th>C</th><th>E</th><th></th><th></th><th>C</th><th>E</th><th>C</th><th>E</th><th></th><th></th></tr>
 <?php
-		foreach ($per_seq_stats as $seq_stats) {
-			echo "<tr><td>".format_seq($seq_stats['seq'])."</td><td>".rounded_or_na($seq_stats['prob'])."</td><td>".rounded_or_na($seq_stats['avgs']['C'])."</td><td>".rounded_or_na($seq_stats['avgs']['E'])."</td><td>".rounded_or_na($seq_stats['avgs']['C'] === 'n/a' ? 'n/a' : $seq_stats['avgs']['C']*$seq_stats['prob'])."</td><td>".rounded_or_na($seq_stats['avgs']['E'] === 'n/a' ? 'n/a' : $seq_stats['avgs']['E']*$seq_stats['prob'])."</td><td>".rounded_or_na($seq_stats['diff_avgs'])."</td><td>".rounded_or_na($seq_stats['diff_avgs'] === 'n/a' ? 'n/a' : $seq_stats['diff_avgs']*$seq_stats['prob'])."</td><td>".rounded_or_na($seq_stats['sums']['C'])."</td><td>".rounded_or_na($seq_stats['sums']['E'])."</td><td>".rounded_or_na($seq_stats['sums']['C'] === 'n/a' ? 'n/a' : $seq_stats['sums']['C']*$seq_stats['prob'])."</td><td>".rounded_or_na($seq_stats['sums']['E'] === 'n/a' ? 'n/a' : $seq_stats['sums']['E']*$seq_stats['prob'])."</td><td>".rounded_or_na($seq_stats['diff_sums'])."</td><td>".rounded_or_na($seq_stats['diff_sums'] === 'n/a' ? 'n/a' : $seq_stats['diff_sums']*$seq_stats['prob'])."</td></tr>\n";
+		if (!$hide_all_but_summary) {
+			foreach ($per_seq_stats as $seq_stats) {
+				echo "<tr><td>".format_seq($seq_stats['seq'])."</td><td>".rounded_or_na($seq_stats['prob'])."</td><td>".rounded_or_na($seq_stats['avgs']['C'])."</td><td>".rounded_or_na($seq_stats['avgs']['E'])."</td><td>".rounded_or_na($seq_stats['avgs']['C'] === 'n/a' ? 'n/a' : $seq_stats['avgs']['C']*$seq_stats['prob'])."</td><td>".rounded_or_na($seq_stats['avgs']['E'] === 'n/a' ? 'n/a' : $seq_stats['avgs']['E']*$seq_stats['prob'])."</td><td>".rounded_or_na($seq_stats['diff_avgs'])."</td><td>".rounded_or_na($seq_stats['diff_avgs'] === 'n/a' ? 'n/a' : $seq_stats['diff_avgs']*$seq_stats['prob'])."</td><td>".rounded_or_na($seq_stats['sums']['C'])."</td><td>".rounded_or_na($seq_stats['sums']['E'])."</td><td>".rounded_or_na($seq_stats['sums']['C'] === 'n/a' ? 'n/a' : $seq_stats['sums']['C']*$seq_stats['prob'])."</td><td>".rounded_or_na($seq_stats['sums']['E'] === 'n/a' ? 'n/a' : $seq_stats['sums']['E']*$seq_stats['prob'])."</td><td>".rounded_or_na($seq_stats['diff_sums'])."</td><td>".rounded_or_na($seq_stats['diff_sums'] === 'n/a' ? 'n/a' : $seq_stats['diff_sums']*$seq_stats['prob'])."</td></tr>\n";
+			}
 		}
-		echo '<tr><th>Totals:</th><th>'.rounded_or_na($per_seq_summary_stats['sum_prob']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_C_avgs']).'<th>'.rounded_or_na($per_seq_summary_stats['sum_E_avgs']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_C_avgs_prob'], $per_seq_summary_stats['sum_prob']).$fn1.'<th>'.rounded_or_na($per_seq_summary_stats['sum_E_avgs_prob'], $per_seq_summary_stats['sum_prob']).$fn1.'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_diff_avgs']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_diff_avgs_prob'], $per_seq_summary_stats['sum_prob']).$fn1.'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_C_sums']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_E_sums']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_C_sums_prob'], $per_seq_summary_stats['sum_prob']).$fn1.'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_E_sums_prob'], $per_seq_summary_stats['sum_prob']).$fn1.'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_diff_sums']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_diff_sums_prob'], $per_seq_summary_stats['sum_prob']).$fn1.'</th></tr>'."\n";
+                echo '<tr><th>Totals:</th><th>'.rounded_or_na($per_seq_summary_stats['sum_prob']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_C_avgs']).'<th>'.rounded_or_na($per_seq_summary_stats['sum_E_avgs']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_C_avgs_prob'], $per_seq_summary_stats['sum_prob']).$fn1.'<th>'.rounded_or_na($per_seq_summary_stats['sum_E_avgs_prob'], $per_seq_summary_stats['sum_prob']).$fn1.'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_diff_avgs']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_diff_avgs_prob'], $per_seq_summary_stats['sum_prob']).$fn1.'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_C_sums']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_E_sums']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_C_sums_prob'], $per_seq_summary_stats['sum_prob']).$fn1.'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_E_sums_prob'], $per_seq_summary_stats['sum_prob']).$fn1.'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_diff_sums']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_diff_sums_prob'], $per_seq_summary_stats['sum_prob']).$fn1.'</th></tr>'."\n";
 		echo '<tr><th>Averages:</th><th>'.rounded_or_na($per_seq_avgs['avg_prob']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_C_avgs']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_E_avgs']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_C_avgs_prob']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_E_avgs_prob']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_diff_avgs']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_diff_avgs_prob']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_C_sums']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_E_sums']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_C_sums_prob']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_E_sums_prob']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_diff_sums']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_diff_sums_prob']).'</th></tr>'."\n";
 
 		echo '<tr><th>Differences (Totals):</th><th></th><th colspan="2">'.rounded_or_na($per_seq_diff_sum_avgs).'</th><th colspan="2">'.rounded_or_na($per_seq_diff_sum_avgs_prob, $per_seq_summary_stats['sum_prob']).'</th><th></th><th></th><th colspan="2">'.rounded_or_na($per_seq_diff_sum_sums).'</th><th colspan="2">'.rounded_or_na($per_seq_diff_sum_sums_prob, $per_seq_summary_stats['sum_prob']).'</th><th></th><th></th></tr>'."\n";
 		echo '<tr><th>Differences (Averages):</th><th></th><th colspan="2">'.rounded_or_na($per_seq_diff_avg_avgs).'</th><th colspan="2">'.rounded_or_na($per_seq_diff_avg_avgs_prob).'</th><th></th><th></th><th colspan="2">'.rounded_or_na($per_seq_diff_avg_sums).'</th><th colspan="2">'.rounded_or_na($per_seq_diff_avg_sums_prob).'</th><th></th><th></th></tr>'."\n";
 ?>
 </table>
+<?php
+	}
+
+	/* Show the per-number-of-calm/emotional-trials sum and average listing tables if necessary. */
+	if ($show_per_num_calm_lists) {
+?>
 
 <h2>Per-<?php echo $lbl_seq_or_exp; ?> average arousals for given numbers of calm/emotional trials</h2>
-
-<p>As extracted from the above "Per-<?php echo $lbl_seq_or_exp; ?> arousals" table.</p>
-
+<?php
+		if ($show_sequence_table) echo "<p>As extracted from the above \"Per-$lbl_seq_or_exp arousals\" table.</p>\n";
+?>
 <table class="tbl_data tbl_fixed">
 <tr><th>#C</th><th>#E</th><th>Probability</th><th colspan="4">Average Arousals</th></tr>
 <tr><th></th><th></th><th></th><th colspan="2">Raw</th><th colspan="2">Weighted by probability</th></tr>
@@ -297,7 +298,10 @@ if (isset($_GET['num_trials_per_seq'])) {
 
 <h2>Per-<?php echo $lbl_seq_or_exp; ?> sums of arousals for given numbers of calm/emotional trials</h2>
 
-<p>As extracted from the above "Per-<?php echo $lbl_seq_or_exp; ?> arousals" table.</p>
+<?php
+		if ($show_sequence_table) echo "<p>As extracted from the above \"Per-$lbl_seq_or_exp arousals\" table.</p>\n";
+?>
+
 
 <table class="tbl_data tbl_fixed">
 <tr><th>#C</th><th>#E</th><th>Probability</th><th colspan="4">Sums of Arousals</th></tr>
@@ -313,17 +317,16 @@ if (isset($_GET['num_trials_per_seq'])) {
 <?php
 	}
 
-	/* Show per-number-of-calm/emotional-trials summary table if necessary */
+	/* Show the per-number-of-calm/emotional-trials summary table if necessary */
+	if ($show_per_num_calm) {
 ?>
 
 <h2>Sums and averages of per-<?php echo $lbl_seq_or_exp; ?> sums and averages of arousals for given numbers of calm/emotional trials</h2>
 
 <?php
-	if ($show_details) {
-		echo '<p>As derived from the above two tables.</p>'."\n";
-	}
-
-	if ($show_per_num_calm) {
+		if ($show_per_num_calm_lists) {
+			echo '<p>As derived from the above two tables.</p>'."\n";
+		}
 ?>
 
 <table class="tbl_data tbl_fixed" id="id_per_num_calm_stats">
@@ -344,56 +347,68 @@ if (isset($_GET['num_trials_per_seq'])) {
 <?php
 	}
 
-	/* Show expectation bias table if necessary */
+	/* Show the expectation bias table if necessary */
+	if ($show_expectation_bias) {
 ?>
 
 <h2>Expectation bias</h2>
 
 <?php
-	$exp_bias_pc_per_seq_diff = ($per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'] !=/*Not !== because might be a float*/ 0 && $per_seq_summary_stats['sum_diff_avgs_prob'] !== 'n/a') ? rounded_or_na($per_seq_summary_stats['sum_diff_avgs_prob'] / $per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'] * 100).'%' : 'n/a';
+		$exp_bias_pc_per_seq_diff = ($per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'] !=/*Not !== because might be a float*/ 0 && $per_seq_summary_stats['sum_diff_avgs_prob'] !== 'n/a') ? rounded_or_na($per_seq_summary_stats['sum_diff_avgs_prob'] / $per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'] * 100).'%' : 'n/a';
 
-	$do_wackermann = ($num_seq_per_exp == 1);
-	if ($do_wackermann) {
-		$scale_wackermann = ($arousal_inc != 1);
-		$are_sampling = !($sample_start == 1 && $sample_inc == 1);
-		$wackermann_diff = calc_wackermann_diff($num_trials_per_seq, $prob_e);
-		if ($scale_wackermann) $wackermann_diff = bcmul($wackermann_diff, $arousal_inc);
-		$wackermann_label_appendage = '';
-		if ($scale_wackermann) {
-			$wackermann_label_appendage .= ' (scaled';
+		$do_wackermann = ($num_seq_per_exp == 1 && $arousal_model == 'linear');
+		if ($do_wackermann) {
+			$scale_wackermann = ($arousal_inc != 1);
+			$are_sampling = !($sample_start == 1 && $sample_inc == 1);
+			$wackermann_diff = calc_wackermann_diff($num_trials_per_seq, $prob_e);
+			if ($scale_wackermann) $wackermann_diff = bcmul($wackermann_diff, $arousal_inc);
+			$wackermann_label_appendage = '';
+			if ($scale_wackermann) {
+				$wackermann_label_appendage .= ' (scaled';
+			}
+			if ($are_sampling) {
+				$wackermann_label_appendage .= $wackermann_label_appendage == '' ? ' (' : ', ';
+				$wackermann_label_appendage .= 'without within-sequence sampling';
+			}
+			if ($wackermann_label_appendage) {
+				$wackermann_label_appendage .= ')';
+			}
 		}
-		if ($are_sampling) {
-			$wackermann_label_appendage .= $wackermann_label_appendage == '' ? ' (' : ', ';
-			$wackermann_label_appendage .= 'without within-sequence sampling';
-		}
-		if ($wackermann_label_appendage) {
-			$wackermann_label_appendage .= ')';
-		}
-	}
 ?>
 
 <table class="tbl_data">
-<tr><th>Method</th><th>Average bias in per-<?php echo $lbl_seq_or_exp; ?> average arousals for emotional versus calm trials</th><th>Average of per-<?php echo $lbl_seq_or_exp; ?> average arousals</th><th>Expectation bias as a percentage of average ov per-<?php echo $lbl_seq_or_exp; ?> average arousals</th></tr>
+<tr><th>Method</th><th>Average bias in per-<?php echo $lbl_seq_or_exp; ?> average arousals for emotional versus calm trials</th><th>Average of per-<?php echo $lbl_seq_or_exp; ?> average arousals</th><th>Expectation bias as a percentage of average of per-<?php echo $lbl_seq_or_exp; ?> average arousals</th></tr>
 <tr><td>Average of per-<?php echo $lbl_seq_or_exp; ?> differences (excluding n/a's)</td><td><?php echo rounded_or_na($per_seq_summary_stats['sum_diff_avgs_prob'], $per_seq_summary_stats['sum_prob']); ?></td><td><?php echo rounded_or_na($per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'], $per_seq_summary_stats['sum_prob']); ?></td><td><?php echo $exp_bias_pc_per_seq_diff; ?></td></tr>
 <tr><td>Average of per-<?php echo $lbl_seq_or_exp; ?> differences (setting n/a's to zero)</td><td><?php echo rounded_or_na($per_seq_summary_stats['sum_diff_avgs_prob'] * $per_seq_summary_stats['count_diff_avgs_prob'] / $tot_samples, $per_seq_summary_stats['sum_prob']); ?></td><td><?php echo rounded_or_na($per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'] * $per_seq_summary_stats['count_diff_avgs_prob'] / $tot_samples, $per_seq_summary_stats['sum_prob']); ?></td><td><?php /*same as for above row since we scale denominator and numerator by the same factor*/echo $exp_bias_pc_per_seq_diff; ?></td></tr>
 <?php
-	if ($do_wackermann) {
+		if ($do_wackermann) {
 ?>
 <tr><td>Wackermann's formula<?php echo $wackermann_label_appendage; ?></td><td><?php echo bcround($wackermann_diff, $rounding_precision); ?></td><td><?php if (!$are_sampling) echo rounded_or_na($per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'], $per_seq_summary_stats['sum_prob']); ?></td><td><?php if (!$are_sampling) echo ($per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'] !=/*Not !== because might be a float*/ 0) ? rounded_or_na($wackermann_diff / $per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'] * 100 * $per_seq_summary_stats['sum_prob']).'%' : 'n/a'; ?></td></tr>
 <?php
-	}
+		}
 ?>
 <tr><td>Difference of per-<?php echo $lbl_seq_or_exp; ?> averages (excluding n/a's)</td><td><?php echo rounded_or_na($per_seq_diff_sum_avgs_prob, $per_seq_summary_stats['sum_prob']); ?></td><td><?php echo rounded_or_na($per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'], $per_seq_summary_stats['sum_prob']); ?></td><td><?php echo ($per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'] != 0 ? rounded_or_na($per_seq_diff_sum_avgs_prob / $per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'] * 100).'%' : 'n/a'); ?></td></tr>
 </table>
 
 <?php
+	}
+
+	/* Show the script duration */
+	echo '<p>Duration: '.rounded_or_na($duration).'s.</p>'."\n";
+
 	echo $footnote1;
+
+	/* Show the settings used for this run of the script if we are showing them at bottom */
+	if ($settings_list_at_bottom) {
+		output_settings($sequence_sampling_type, $num_samples, $num_seq_per_exp, $num_trials_per_seq, $arousal_model, $reset_arousal, $arousal_inc, $rounding_precision, $bc_scale_factor, $lbl_seq_or_exp, $sample_inc, $sample_start, $prob_e, $drop_all_equal_seqs);
+	}
 }
 
-/* Show settings entry form */
+
+/* Show the settings entry form */
 ?>
 
-<h2>Settings</h2>
+<h2>Enter settings to (re)run the script</h2>
 
 <form method="get" action="<?php echo $_SERVER['PHP_SELF']; ?>">
 
@@ -409,10 +424,17 @@ if (isset($_GET['num_trials_per_seq'])) {
 	<td><input type="text" id="id.num_trials_per_seq" name="num_trials_per_seq" value="<?php echo $num_trials_per_seq; ?>"></td>
 </tr>
 <tr>
-	<td>Model using:</td>
+	<td>Sample:</td>
 	<td>
-		<input type="radio" id="id.model_full_seq" name="model" value="full_seq"<?php if ($model == 'full_seq') echo ' checked'; ?>>The full set of experiments/sequences.<br>
-		<input type="radio" id="id.model_sample" name="model" value="sample"<?php if ($model == 'sample') echo ' checked'; ?>>A random sample from the full set of experiments/sequences, using this many samples: <input type="text" name="num_samples" value="<?php echo $num_samples; ?>"><br>
+		<input type="radio" id="id.sequence_sampling_type_full_seq" name="sequence_sampling_type" value="full_seq"<?php if ($sequence_sampling_type == 'full_seq') echo ' checked'; ?>>The full set of experiments/sequences.<br>
+		<input type="radio" id="id.sequence_sampling_type_sample" name="sequence_sampling_type" value="sample"<?php if ($sequence_sampling_type == 'sample') echo ' checked'; ?>>Randomly from the full set of experiments/sequences, using this many samples: <input type="text" name="num_samples" value="<?php echo $num_samples; ?>"><br>
+	</td>
+</tr>
+<tr>
+	<td>Arousal model:</td>
+	<td>
+		<input type="radio" id="id.arousal_model_linear" name="arousal_model" value="linear"<?php if ($arousal_model == 'linear') echo ' checked'; ?>>Linear
+		<input type="radio" id="id.arousal_model_linear" name="arousal_model" value="binary"<?php if ($arousal_model == 'binary') echo ' checked'; ?>>Binary
 	</td>
 </tr>
 <tr>
@@ -428,18 +450,38 @@ if (isset($_GET['num_trials_per_seq'])) {
 	<td><input type="text" id="id.prob_e" name="prob_e" value="<?php echo $prob_e; ?>"></td>
 </tr>
 <tr>
+	<td>Drop sequences of all-emotional and all-calm trials:</td>
+	<td>
+		<input type="radio" id="id.drop_all_equal_seqs_no"  name="drop_all_equal_seqs" value="no"<?php if (!$drop_all_equal_seqs) echo ' checked'; ?>>No
+		<input type="radio" id="id.drop_all_equal_seqs_yes" name="drop_all_equal_seqs" value="yes"<?php if ($drop_all_equal_seqs) echo ' checked'; ?>>Yes
+	</td>
+</tr>
+<tr>
 	<td><label for="id.rounding_precision">Number of decimal places to round to (for display only):</label></td>
 	<td><input type="text" id="id.rounding_precision" name="rounding_precision" value="<?php echo $rounding_precision; ?>"></td>
 </tr>
 <tr>
-	<td><label for="id.bc_scale_factor">Arbitrary precision maths scaling factor (if Wackermann's formula gives zero, you need to increase this):</label></td>
+	<td><label for="id.bc_scale_factor">Arbitrary-precision maths precision level (if Wackermann's formula gives zero, you need to increase this):</label></td>
 	<td><input type="text" id="id.bc_scale_factor" name="bc_scale_factor" value="<?php echo $bc_scale_factor; ?>"></td>
 </tr>
 </table>
+
 <label for="id.sample_inc">Within experiments, sample every </label> <input type="text" id="id.sample_inc" name="sample_inc" value="<?php echo $sample_inc; ?>">
+
 <label for="id.sample_inc">trials, starting from (leftmost) trial number</label> <input type="text" id="id.sample_start" name="sample_start" value="<?php echo $sample_start; ?>"><br />
-<input type="checkbox" id="id.show_details" name="show_details"<?php if ($show_details) echo ' checked="checked"'; ?>><label for="id.show_details">Show per-sequence or per-experiment details, and the tables listing each of the per-sequence or per-experiment averages and sums associated with each sequence for each number of calm/emotional trials. <b>Warning</b>: <i>this will result in many rows of sequences for even relatively small numbers of trials</i>: 2 to the power of the number of trials per experiment. This is e.g. 1024 rows of experiments when you enter 10 trials per experiment, and about a million rows when you enter 20 trials per experiment.</label><br />
+
+<input type="checkbox" id="id.show_sequence_table" name="show_sequence_table"<?php if ($show_sequence_table) echo ' checked="checked"'; ?>><label for="id.show_sequence_table">Show table of sequences/experiments. <b>Warning</b>: <i>unless the "Hide all rows but the summary rows" checkbox below is checked, this will result in many rows of sequences for even relatively small numbers of trials</i>: 2 to the power of the number of trials per experiment. This is e.g. 1024 rows of experiments when you enter 10 trials per experiment, and about a million rows when you enter 20 trials per experiment. <i>It will also greatly increase the resource (memory) requirements of the script.</i></label><br />
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<input type="checkbox" id="id.hide_all_but_summary" name="hide_all_but_summary"<?php if ($hide_all_but_summary) echo ' checked="checked"'; ?>><label for="id.hide_all_but_summary">Hide all rows but the summary rows.</label><br />
+
+<input type="checkbox" id="id.show_per_num_calm_lists" name="show_per_num_calm_lists"<?php if ($show_per_num_calm_lists) echo ' checked="checked"'; ?>><label for="id.show_per_num_calm_lists">Show the tables listing each of the per-sequence or per-experiment averages and sums associated with each sequence for each number of calm/emotional trials.</label><br />
+
 <input type="checkbox" id="id.show_per_num_calm" name="show_per_num_calm"<?php if ($show_per_num_calm) echo ' checked="checked"'; ?>><label for="id.show_per_num_calm">Show table of summary statistics for per-number-of-calm/emotional-experiments/sequences.</label><br />
+
+<input type="checkbox" id="id.show_expectation_bias" name="show_expectation_bias"<?php if ($show_expectation_bias) echo ' checked="checked"'; ?>><label for="id.show_expectation_bias">Show the expectation bias table.</label><br />
+
+<input type="checkbox" id="id.settings_list_at_bottom" name="settings_list_at_bottom"<?php if ($settings_list_at_bottom) echo ' checked="checked"'; ?>><label for="id.settings_list_at_bottom">Show the static listing of settings at the bottom of the page rather than the top.</label><br />
+
 <input type="submit" name="submit" value="Go">
 </form>
 
@@ -448,6 +490,54 @@ if (isset($_GET['num_trials_per_seq'])) {
 </html>
 
 <?php
+
+
+/* Show the settings for the current set of statistics. */
+function output_settings($sequence_sampling_type, $num_samples, $num_seq_per_exp, $num_trials_per_seq, $arousal_model, $reset_arousal, $arousal_inc, $rounding_precision, $bc_scale_factor, $lbl_seq_or_exp, $sample_inc, $sample_start, $prob_e, $drop_all_equal_seqs) {
+?>
+
+<h2>Settings used for this run of the script</h2>
+
+<p>Sampling: <?php echo ($sequence_sampling_type == 'full_seq' ? 'the full set of sequences' : 'a random sample of '.number_format($num_samples).' of the full set of sequences').'.'; ?></p>
+
+<p>Averaging method: <?php echo ($num_seq_per_exp == 1 ? 'per sequence' : 'pooled'); ?>.</p>
+
+<?php
+	if ($num_seq_per_exp != 1) {
+?>
+<p>Number of sequences  per experiment: <?php echo $num_seq_per_exp; ?>.</p>
+
+<?php
+	}
+?>
+<p>Number of trials per sequence: <?php echo $num_trials_per_seq; ?>.</p>
+
+<p>Arousal model: <?php echo $arousal_model; ?>.</p>
+
+<p>Reset arousal level: <?php echo $reset_arousal; ?>.</p>
+
+<p><?php echo ($arousal_model == 'linear' ? 'Arousal increment' : 'Static arousal level').': '.$arousal_inc; ?>.</p>
+
+<p>Dropping sequences of all-emotional and all-calm trials?: <?php echo $drop_all_equal_seqs ? 'Yes' : 'No'; ?>.</p>
+
+<p>Number of decimal places to round to: <?php echo $rounding_precision; ?>.</p>
+
+<p>Arbitrary-precision maths precision level (if Wackermann's formula gives zero, you need to increase this): <?php echo $bc_scale_factor; ?>.</p>
+
+<p>Sampling within each <?php echo $lbl_seq_or_exp; ?> every <?php echo $sample_inc; ?> trials beginning from (leftmost) trial <?php echo $sample_start; ?>.</p>
+
+<p>E = emotional trial (after which arousal resets).</p>
+
+<p>C = calm trial (after which arousal increments).</p>
+
+<p>Probability(E) = <?php echo $prob_e; ?>.</p>
+
+<p>Probability(C) = (1 - Probability(E)) = <?php echo (1 - $prob_e); ?>.</p>
+
+<p>Arousal starts at reset level. Arousal level for a particular trial is the arousal level <i>preceding</i> that trial. Averages are with respect to these preceding arousal levels across all <i>sampled</i> calm/emotional trials in the sequence.</p> 
+
+<?php
+}
 
 /* Format a sequence for display: $seq might in fact represent multiple
  * sequences over an experiment of $num_seq_per_exp sequences, in which case we
@@ -539,27 +629,27 @@ function get_rounded_string_list($list, $factor = 1) {
 	return implode(array_map('rounded_or_na', array_map(function($item) use($factor) {return $item === 'n/a' ? 'n/a' : $item * $factor;}, $list)), ',&nbsp;&nbsp; ');
 }
 
-function calc_stats_by_sampling($num_samples, $num_trials_per_exp, &$per_seq_stats, &$per_num_calm_stats, &$per_seq_summary_stats) {
+function calc_stats_by_sampling($num_samples, $num_trials_per_exp, &$per_seq_stats, &$per_num_calm_stats, &$per_seq_summary_stats, $arousal_model, $drop_all_equal_seqs) {
 	for ($i = 0; $i < $num_samples; $i++) {
 		$seq = '';
 		for ($j = 0; $j < $num_trials_per_exp; $j++) {
 			$seq .= rand(0, 1) == 1 ? 'E' : 'C';
 		}
-		add_seq($seq, $per_seq_stats, $per_num_calm_stats, $per_seq_summary_stats);
+		if (!$drop_all_equal_seqs || (strpos($seq, 'E') !== false && strpos($seq, 'C') !== false)) add_seq($seq, $per_seq_stats, $per_num_calm_stats, $per_seq_summary_stats, $arousal_model);
 	}
 }
 
-function calc_stats_r($seq_part, $depth, $num_trials_per_exp, &$per_seq_stats, &$per_num_calm_stats, &$per_seq_summary_stats) {
+function calc_stats_r($seq_part, $depth, $num_trials_per_exp, &$per_seq_stats, &$per_num_calm_stats, &$per_seq_summary_stats, $arousal_model, $drop_all_equal_seqs) {
 	foreach (array('C', 'E') as $trial_type) {
 		if ($depth == $num_trials_per_exp - 1) {
-			add_seq($seq_part.$trial_type, $per_seq_stats, $per_num_calm_stats, $per_seq_summary_stats);
-		} else	calc_stats_r($seq_part.$trial_type, $depth+1, $num_trials_per_exp, $per_seq_stats, $per_num_calm_stats, $per_seq_summary_stats);
+			if (!$drop_all_equal_seqs || (strpos($seq_part.$trial_type, 'E') !== false && strpos($seq_part.$trial_type, 'C') !== false)) add_seq($seq_part.$trial_type, $per_seq_stats, $per_num_calm_stats, $per_seq_summary_stats, $arousal_model);
+		} else	calc_stats_r($seq_part.$trial_type, $depth+1, $num_trials_per_exp, $per_seq_stats, $per_num_calm_stats, $per_seq_summary_stats, $arousal_model, $drop_all_equal_seqs);
 	}
 }
 
 /* $sequence represents an experiment of $num_seq_per_exp sequences of $num_trials_per_seq trials */
-function add_seq($sequence, &$per_seq_stats, &$per_num_calm_stats, &$per_seq_summary_stats) {
-	global $reset_arousal, $arousal_inc, $sample_start, $sample_inc, $prob_e, $num_trials_per_seq, $show_details, $show_per_num_calm;
+function add_seq($sequence, &$per_seq_stats, &$per_num_calm_stats, &$per_seq_summary_stats, $arousal_model) {
+	global $reset_arousal, $arousal_inc, $sample_start, $sample_inc, $prob_e, $num_trials_per_seq, $show_sequence_table, $show_per_num_calm, $show_per_num_calm_lists, $hide_all_but_summary;
 
 	$counts = $sampled_counts = $sampled_sums = array('C' => 0, 'E' => 0, 'all' => 0);
 	$arousal = $reset_arousal;
@@ -575,7 +665,11 @@ function add_seq($sequence, &$per_seq_stats, &$per_num_calm_stats, &$per_seq_sum
 		}
 		if ($trial_type == 'E' || $trial_num % $num_trials_per_seq == 0) {
 			$arousal = $reset_arousal;
-		} else	$arousal += $arousal_inc;
+		} else if ($arousal_model == 'linear') {
+			$arousal += $arousal_inc;
+		} else /* $arousal_model == 'binary' */ {
+			$arousal = $arousal_inc;
+		}
 		$trial_num++;
 	}
 	$avgs = array(
@@ -591,7 +685,7 @@ function add_seq($sequence, &$per_seq_stats, &$per_num_calm_stats, &$per_seq_sum
 	$diff_avgs = ($avgs['C'] === 'n/a' || $avgs['E'] === 'n/a') ? 'n/a' : $avgs['E'] - $avgs['C'];
 	$diff_sums = $sums['E'] - $sums['C'];
 
-	if ($show_details) {
+	if ($show_sequence_table && !$hide_all_but_summary) {
 		$per_seq_stats[] = array(
 			'seq'       => $sequence,
 			'avgs'      => $avgs,
@@ -605,7 +699,7 @@ function add_seq($sequence, &$per_seq_stats, &$per_num_calm_stats, &$per_seq_sum
 	$per_seq_summary_stats['sum_prob'] += $prob;
 	$per_seq_summary_stats['count_prob']++;
 	if ($avgs['C'] !== 'n/a') {
-		if ($show_details) {
+		if ($show_sequence_table) {
 			$per_seq_summary_stats['sum_C_avgs'] += $avgs['C'];
 			$per_seq_summary_stats['count_C_avgs']++;
 		}
@@ -613,14 +707,14 @@ function add_seq($sequence, &$per_seq_stats, &$per_num_calm_stats, &$per_seq_sum
 		$per_seq_summary_stats['count_C_avgs_prob']++;
 	}
 	if ($avgs['E'] !== 'n/a') {
-		if ($show_details) {
+		if ($show_sequence_table) {
 			$per_seq_summary_stats['sum_E_avgs'] += $avgs['E'];
 			$per_seq_summary_stats['count_E_avgs']++;
 		}
 		$per_seq_summary_stats['sum_E_avgs_prob'] += $avgs['E'] * $prob;
 		$per_seq_summary_stats['count_E_avgs_prob']++;
 	}
-	if ($show_details) {
+	if ($show_sequence_table) {
 		$per_seq_summary_stats['sum_C_sums'] += $sums['C'];
 		$per_seq_summary_stats['count_C_sums']++;
 		$per_seq_summary_stats['sum_E_sums'] += $sums['E'];
@@ -631,7 +725,7 @@ function add_seq($sequence, &$per_seq_stats, &$per_num_calm_stats, &$per_seq_sum
 		$per_seq_summary_stats['count_E_sums_prob']++;
 	}
 	if ($diff_avgs !== 'n/a') {
-		if ($show_details) {
+		if ($show_sequence_table) {
 			$per_seq_summary_stats['sum_diff_avgs'] += $diff_avgs;
 			$per_seq_summary_stats['count_diff_avgs']++;
 		}
@@ -639,14 +733,14 @@ function add_seq($sequence, &$per_seq_stats, &$per_num_calm_stats, &$per_seq_sum
 		$per_seq_summary_stats['count_diff_avgs_prob']++;
 		$per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'] += $avgs['all'] * $prob;
 	}
-	if ($show_details) {
+	if ($show_sequence_table) {
 		$per_seq_summary_stats['sum_diff_sums'] += $diff_sums;
 		$per_seq_summary_stats['count_diff_sums']++;
 		$per_seq_summary_stats['sum_diff_sums_prob'] += $diff_sums * $prob;
 		$per_seq_summary_stats['count_diff_sums_prob']++;
 	}
 
-	if ($show_details || $show_per_num_calm) {
+	if ($show_per_num_calm_lists || $show_per_num_calm) {
 		if (!isset($per_num_calm_stats[$counts['C']])) {
 			$per_num_calm_stats[$counts['C']] = array(
 				'C_avgs'     => array(),
