@@ -26,11 +26,14 @@
  * 2. Deny anybody else the right to falsely claim authorship over it other than of any changes that they make to it.
  *
  * Author : Laird Shaw.
- * Date   : 2015-09-24
- * Version: 9.
+ * Date   : 2015-09-27
+ * Version: 10.
  *
  * Changelog:
  *
+ * Version 10, 2015-09-27: Added support for running a scenario multiple times. At the end, a table is printed
+ *                         listing average arousals and expectation biases in columns, with means and SDs for
+ *                         each column.
  * Version 9, 2015-09-24: Added support for specifying the binary arousal model as an alternative to the existing
  *                         linear arousal model.
  *                        Added support for dropping sequences of all-emotional and all-calm trials.
@@ -122,6 +125,7 @@ $bc_scale_factor         = 200;
 $sample_start            = 1;
 $sample_inc              = 1;
 $drop_all_equal_seqs     = false;
+$num_repetitions         = 1;
 $show_sequence_table     = false;
 $hide_all_but_summary    = false;
 $show_per_num_calm_lists = false;
@@ -135,38 +139,6 @@ $arousal_model           = 'linear';
 if (isset($_GET['num_trials_per_seq'])) {
 	/* Start timing */
 	$ts_start = microtime(true);
-
-	/* Initialise data structures */
-	$per_seq_stats = $per_num_calm_stats = $per_num_calm_summary_stats = array();
-	$per_seq_summary_stats = array(
-		'sum_prob'        => 0,
-		'count_prob'      => 0,
-		'sum_C_avgs'      => 0,
-		'count_C_avgs'    => 0,
-		'sum_E_avgs'      => 0,
-		'count_E_avgs'    => 0,
-		'sum_C_sums'      => 0,
-		'count_C_sums'    => 0,
-		'sum_E_sums'      => 0,
-		'count_E_sums'    => 0,
-		'sum_diff_avgs'   => 0,
-		'count_diff_avgs' => 0,
-		'sum_diff_sums'   => 0,
-		'count_diff_sums' => 0,
-		'sum_C_avgs_prob'      => 0,
-		'count_C_avgs_prob'    => 0,
-		'sum_E_avgs_prob'      => 0,
-		'count_E_avgs_prob'    => 0,
-		'sum_C_sums_prob'      => 0,
-		'count_C_sums_prob'    => 0,
-		'sum_E_sums_prob'      => 0,
-		'count_E_sums_prob'    => 0,
-		'sum_diff_avgs_prob'   => 0,
-		'count_diff_avgs_prob' => 0,
-		'sum_diff_sums_prob'   => 0,
-		'count_diff_sums_prob' => 0,
-		'sum_all_avgs_for_defined_diffs_prob' => 0,
-	);
 
 	/* Parse input */
 	$num_seq_per_exp = (int)$_GET['num_seq_per_exp'];
@@ -187,6 +159,8 @@ if (isset($_GET['num_trials_per_seq'])) {
 	$sample_inc = (int)$_GET['sample_inc'];
 	if ($sample_inc < 1) $sample_inc = 1;
 	$drop_all_equal_seqs     = ($_GET['drop_all_equal_seqs'] == 'yes');
+	$num_repetitions         = (int)$_GET['num_repetitions'];
+	if ($num_repetitions < 1) $num_repetitions = 1;
 	$show_sequence_table     = isset($_GET['show_sequence_table']);
 	$hide_all_but_summary    = isset($_GET['hide_all_but_summary']);
 	$show_per_num_calm_lists = isset($_GET['show_per_num_calm_lists']);
@@ -198,51 +172,80 @@ if (isset($_GET['num_trials_per_seq'])) {
 	$sequence_sampling_type = $_GET['sequence_sampling_type'] == 'full_seq' ? 'full_seq' : 'sample';
 	$arousal_model = $_GET['arousal_model'] == 'binary' ? 'binary' : 'linear';
 
-	/* Iterate over all the sequences and gather the stats */
-	if ($sequence_sampling_type == 'full_seq') {
-		calc_stats_r('', 0, $num_trials_per_seq * $num_seq_per_exp, $per_seq_stats, $per_num_calm_stats, $per_seq_summary_stats, $arousal_model, $drop_all_equal_seqs);
-	} else	calc_stats_by_sampling($num_samples, $num_trials_per_seq * $num_seq_per_exp, $per_seq_stats, $per_num_calm_stats, $per_seq_summary_stats, $arousal_model, $drop_all_equal_seqs);
-
-	/* Calculate stats for the per-number-of-calm/emotional-trials summary table if necessary */
-	if ($show_per_num_calm) {
-		calc_final_per_num_calm_stats($per_num_calm_stats, $per_num_calm_summary_stats);
-		krsort($per_num_calm_stats);
-	}
-
-	/* Calculate per-sequence/experiment averages and differences of overall averages/sums if necessary */
-	if ($show_sequence_table) {
-		$per_seq_avgs = get_avgs($per_seq_summary_stats, array('prob', 'C_avgs', 'E_avgs', 'diff_avgs', 'C_sums', 'E_sums', 'diff_sums', 'C_avgs_prob', 'E_avgs_prob', 'diff_avgs_prob', 'C_sums_prob', 'E_sums_prob', 'diff_sums_prob'));
-
-		$per_seq_diff_avg_avgs = diff_or_na($per_seq_avgs['avg_E_avgs'], $per_seq_avgs['avg_C_avgs']);
-		$per_seq_diff_avg_sums = diff_or_na($per_seq_avgs['avg_E_sums'], $per_seq_avgs['avg_C_sums']);
-		$per_seq_diff_avg_avgs_prob = diff_or_na($per_seq_avgs['avg_E_avgs_prob'], $per_seq_avgs['avg_C_avgs_prob']);
-		$per_seq_diff_avg_sums_prob = diff_or_na($per_seq_avgs['avg_E_sums_prob'], $per_seq_avgs['avg_C_sums_prob']);
-		$per_seq_diff_sum_avgs = diff_or_na($per_seq_summary_stats['sum_E_avgs'], $per_seq_summary_stats['sum_C_avgs']);
-		$per_seq_diff_sum_sums = diff_or_na($per_seq_summary_stats['sum_E_sums'], $per_seq_summary_stats['sum_C_sums']);
-		$per_seq_diff_sum_sums_prob = diff_or_na($per_seq_summary_stats['sum_E_sums_prob'], $per_seq_summary_stats['sum_C_sums_prob']);
-	}
-	$per_seq_diff_sum_avgs_prob = diff_or_na($per_seq_summary_stats['sum_E_avgs_prob'], $per_seq_summary_stats['sum_C_avgs_prob']);
-
-	/* Calculate per-number-of-calm/emotional-trials averages and differences of overall averages/sums if necessary */
-	if ($show_per_num_calm) {
-		$num_calm_avgs = get_avgs($per_num_calm_summary_stats, array('C_avg_avgs', 'E_avg_avgs', 'C_weighted_avg_avgs', 'E_weighted_avg_avgs', 'C_sum_avgs', 'E_sum_avgs', 'C_weighted_sum_avgs', 'E_weighted_sum_avgs', 'C_avg_sums', 'E_avg_sums', 'C_sum_sums', 'E_sum_sums', 'C_weighted_avg_sums', 'E_weighted_avg_sums', 'C_weighted_sum_sums', 'E_weighted_sum_sums', '#seq', 'prob', '#seq_prob'));
-
-		$per_num_calm_diff_avg_avg_avgs = diff_or_na($num_calm_avgs['avg_E_avg_avgs'], $num_calm_avgs['avg_C_avg_avgs']);
-		$per_num_calm_diff_avg_weighted_avg_avgs = diff_or_na($num_calm_avgs['avg_E_weighted_avg_avgs'], $num_calm_avgs['avg_C_weighted_avg_avgs']);
-		$per_num_calm_diff_avg_sum_avgs = diff_or_na($num_calm_avgs['avg_E_sum_avgs'], $num_calm_avgs['avg_C_sum_avgs']);
-		$per_num_calm_diff_avg_weighted_sum_avgs = diff_or_na($num_calm_avgs['avg_E_weighted_sum_avgs'], $num_calm_avgs['avg_C_weighted_sum_avgs']);
-		$per_num_calm_diff_avg_avg_sums = diff_or_na($num_calm_avgs['avg_E_avg_sums'], $num_calm_avgs['avg_C_avg_sums']);
-		$per_num_calm_diff_avg_weighted_avg_sums = diff_or_na($num_calm_avgs['avg_E_weighted_avg_sums'], $num_calm_avgs['avg_C_weighted_avg_sums']);
-		$per_num_calm_diff_avg_sum_sums = diff_or_na($num_calm_avgs['avg_E_sum_sums'], $num_calm_avgs['avg_C_sum_sums']);
-		$per_num_calm_diff_avg_weighted_sum_sums = diff_or_na($num_calm_avgs['avg_E_weighted_sum_sums'], $num_calm_avgs['avg_C_weighted_sum_sums']);
-	}
-
 	/* Set number of total samples */
 	$tot_samples = ($sequence_sampling_type == 'sample' ? $num_samples : pow(2, $num_trials_per_seq * $num_seq_per_exp));
 
 	/* Set footnote if necessary */
-	$fn1       = ($sequence_sampling_type == 'sample' && $show_sequence_table) ? '<sup><a href="#footnote1">[1]</a></sup>' : '';
-	$footnote1 = ($sequence_sampling_type == 'sample' && $show_sequence_table) ? '<h2>Footnotes</h2><p id="footnote1">[1] After unweighting (dividing) by sum of per-'.$lbl_seq_or_exp.' probabilities.</p>' : '';
+	$fn1       = ($num_repetitions == 1 && $sequence_sampling_type == 'sample' && $show_sequence_table) ? '<sup><a href="#footnote1">[1]</a></sup>' : '';
+	$footnote1 = ($num_repetitions == 1 && $sequence_sampling_type == 'sample' && $show_sequence_table) ? '<h2>Footnotes</h2><p id="footnote1">[1] After unweighting (dividing) by sum of per-'.$lbl_seq_or_exp.' probabilities.</p>' : '';
+
+	if ($num_repetitions > 1) $res_arr = array(
+		'avg_ar_C_wt'     => array(),
+		'avg_ar_E_wt'     => array(),
+		'avg_ar_C_raw'    => array(),
+		'avg_ar_E_raw'    => array(),
+		'bias_diff_1st'   => array(),
+		'bias_avg_1st'    => array(),
+		'bias_wackermann' => array(),
+	);
+
+	for ($i = 0 ; $i < $num_repetitions; $i++) {
+		/* Initialise global data structures */
+		init_globals();
+
+		/* Iterate over all the sequences and gather the stats */
+		if ($sequence_sampling_type == 'full_seq') {
+			calc_stats_r('', 0, $num_trials_per_seq * $num_seq_per_exp, $per_seq_stats, $per_num_calm_stats, $per_seq_summary_stats, $arousal_model, $drop_all_equal_seqs);
+		} else	calc_stats_by_sampling($num_samples, $num_trials_per_seq * $num_seq_per_exp, $per_seq_stats, $per_num_calm_stats, $per_seq_summary_stats, $arousal_model, $drop_all_equal_seqs);
+
+		/* Calculate per-sequence/experiment averages and differences of overall averages/sums if necessary */
+		if ($num_repetitions > 1 || $show_sequence_table) {
+			$per_seq_avgs = get_avgs($per_seq_summary_stats, array('prob', 'C_avgs', 'E_avgs', 'diff_avgs', 'C_sums', 'E_sums', 'diff_sums', 'C_avgs_prob', 'E_avgs_prob', 'diff_avgs_prob', 'C_sums_prob', 'E_sums_prob', 'diff_sums_prob'));
+
+			$per_seq_diff_avg_avgs = diff_or_na($per_seq_avgs['avg_E_avgs'], $per_seq_avgs['avg_C_avgs']);
+			$per_seq_diff_avg_sums = diff_or_na($per_seq_avgs['avg_E_sums'], $per_seq_avgs['avg_C_sums']);
+			$per_seq_diff_avg_avgs_prob = diff_or_na($per_seq_avgs['avg_E_avgs_prob'], $per_seq_avgs['avg_C_avgs_prob']);
+			$per_seq_diff_avg_sums_prob = diff_or_na($per_seq_avgs['avg_E_sums_prob'], $per_seq_avgs['avg_C_sums_prob']);
+			$per_seq_diff_sum_avgs = diff_or_na($per_seq_summary_stats['sum_E_avgs'], $per_seq_summary_stats['sum_C_avgs']);
+			$per_seq_diff_sum_sums = diff_or_na($per_seq_summary_stats['sum_E_sums'], $per_seq_summary_stats['sum_C_sums']);
+			$per_seq_diff_sum_sums_prob = diff_or_na($per_seq_summary_stats['sum_E_sums_prob'], $per_seq_summary_stats['sum_C_sums_prob']);
+		}
+		$per_seq_diff_sum_avgs_prob = diff_or_na($per_seq_summary_stats['sum_E_avgs_prob'], $per_seq_summary_stats['sum_C_avgs_prob']);
+
+		$eb_arr = get_expectation_bias_array($do_wackermann, $are_sampling, $wackermann_label_appendage);
+
+		if ($num_repetitions > 1) {
+			$res_arr['avg_ar_C_wt'    ][] = $per_seq_avgs['avg_C_avgs_prob'];
+			$res_arr['avg_ar_E_wt'    ][] = $per_seq_avgs['avg_E_avgs_prob'];
+			$res_arr['avg_ar_C_raw'   ][] = $per_seq_avgs['avg_C_avgs'];
+			$res_arr['avg_ar_E_raw'   ][] = $per_seq_avgs['avg_E_avgs'];
+			$res_arr['bias_diff_1st'  ][] = $eb_arr['bias_diff_1st_excl_nas']['bias'];
+			$res_arr['bias_avg_1st'   ][] = $eb_arr['bias_avg_1st']['bias'];
+			$res_arr['bias_wackermann'][] = isset($eb_arr['wackermann']) ? $eb_arr['wackermann']['bias'] : '';
+		}
+	}
+
+	if ($num_repetitions == 1) {
+		/* Calculate stats for the per-number-of-calm/emotional-trials summary table if necessary */
+		if ($show_per_num_calm) {
+			calc_final_per_num_calm_stats($per_num_calm_stats, $per_num_calm_summary_stats);
+			krsort($per_num_calm_stats);
+		}
+
+		/* Calculate per-number-of-calm/emotional-trials averages and differences of overall averages/sums if necessary */
+		if ($show_per_num_calm) {
+			$num_calm_avgs = get_avgs($per_num_calm_summary_stats, array('C_avg_avgs', 'E_avg_avgs', 'C_weighted_avg_avgs', 'E_weighted_avg_avgs', 'C_sum_avgs', 'E_sum_avgs', 'C_weighted_sum_avgs', 'E_weighted_sum_avgs', 'C_avg_sums', 'E_avg_sums', 'C_sum_sums', 'E_sum_sums', 'C_weighted_avg_sums', 'E_weighted_avg_sums', 'C_weighted_sum_sums', 'E_weighted_sum_sums', '#seq', 'prob', '#seq_prob'));
+
+			$per_num_calm_diff_avg_avg_avgs = diff_or_na($num_calm_avgs['avg_E_avg_avgs'], $num_calm_avgs['avg_C_avg_avgs']);
+			$per_num_calm_diff_avg_weighted_avg_avgs = diff_or_na($num_calm_avgs['avg_E_weighted_avg_avgs'], $num_calm_avgs['avg_C_weighted_avg_avgs']);
+			$per_num_calm_diff_avg_sum_avgs = diff_or_na($num_calm_avgs['avg_E_sum_avgs'], $num_calm_avgs['avg_C_sum_avgs']);
+			$per_num_calm_diff_avg_weighted_sum_avgs = diff_or_na($num_calm_avgs['avg_E_weighted_sum_avgs'], $num_calm_avgs['avg_C_weighted_sum_avgs']);
+			$per_num_calm_diff_avg_avg_sums = diff_or_na($num_calm_avgs['avg_E_avg_sums'], $num_calm_avgs['avg_C_avg_sums']);
+			$per_num_calm_diff_avg_weighted_avg_sums = diff_or_na($num_calm_avgs['avg_E_weighted_avg_sums'], $num_calm_avgs['avg_C_weighted_avg_sums']);
+			$per_num_calm_diff_avg_sum_sums = diff_or_na($num_calm_avgs['avg_E_sum_sums'], $num_calm_avgs['avg_C_sum_sums']);
+			$per_num_calm_diff_avg_weighted_sum_sums = diff_or_na($num_calm_avgs['avg_E_weighted_sum_sums'], $num_calm_avgs['avg_C_weighted_sum_sums']);
+		}
+	}
 
 	$ts_end = microtime(true);
 	$duration = $ts_end - $ts_start;
@@ -252,8 +255,9 @@ if (isset($_GET['num_trials_per_seq'])) {
 		output_settings($sequence_sampling_type, $num_samples, $num_seq_per_exp, $num_trials_per_seq, $arousal_model, $reset_arousal, $arousal_inc, $rounding_precision, $bc_scale_factor, $lbl_seq_or_exp, $sample_inc, $sample_start, $prob_e, $drop_all_equal_seqs);
 	}
 
-	/* Show the per-sequence/experiment summary table if necessary */
-	if ($show_sequence_table) {
+	if ($num_repetitions == 1) {
+		/* Show the per-sequence/experiment summary table if necessary */
+		if ($show_sequence_table) {
 ?>
 <h2>Per-<?php echo $lbl_seq_or_exp; ?> arousals</h2>
 
@@ -262,44 +266,44 @@ if (isset($_GET['num_trials_per_seq'])) {
 <tr><th></th><th></th><th colspan="2">Raw</th><th colspan="2">Weighted by probability</th><th>Raw</th><th>Weighted by probability</th><th colspan="2">Raw</th><th colspan="2">Weighted by probability</th><th>Raw</th><th>Weighted by probability</th></tr>
 <tr><th></th><th></th><th>C</th><th>E</th><th>C</th><th>E</th><th></th><th></th><th>C</th><th>E</th><th>C</th><th>E</th><th></th><th></th></tr>
 <?php
-		if (!$hide_all_but_summary) {
-			foreach ($per_seq_stats as $seq_stats) {
-				echo "<tr><td>".format_seq($seq_stats['seq'])."</td><td>".rounded_or_na($seq_stats['prob'])."</td><td>".rounded_or_na($seq_stats['avgs']['C'])."</td><td>".rounded_or_na($seq_stats['avgs']['E'])."</td><td>".rounded_or_na($seq_stats['avgs']['C'] === 'n/a' ? 'n/a' : $seq_stats['avgs']['C']*$seq_stats['prob'])."</td><td>".rounded_or_na($seq_stats['avgs']['E'] === 'n/a' ? 'n/a' : $seq_stats['avgs']['E']*$seq_stats['prob'])."</td><td>".rounded_or_na($seq_stats['diff_avgs'])."</td><td>".rounded_or_na($seq_stats['diff_avgs'] === 'n/a' ? 'n/a' : $seq_stats['diff_avgs']*$seq_stats['prob'])."</td><td>".rounded_or_na($seq_stats['sums']['C'])."</td><td>".rounded_or_na($seq_stats['sums']['E'])."</td><td>".rounded_or_na($seq_stats['sums']['C'] === 'n/a' ? 'n/a' : $seq_stats['sums']['C']*$seq_stats['prob'])."</td><td>".rounded_or_na($seq_stats['sums']['E'] === 'n/a' ? 'n/a' : $seq_stats['sums']['E']*$seq_stats['prob'])."</td><td>".rounded_or_na($seq_stats['diff_sums'])."</td><td>".rounded_or_na($seq_stats['diff_sums'] === 'n/a' ? 'n/a' : $seq_stats['diff_sums']*$seq_stats['prob'])."</td></tr>\n";
+			if (!$hide_all_but_summary) {
+				foreach ($per_seq_stats as $seq_stats) {
+					echo "<tr><td>".format_seq($seq_stats['seq'])."</td><td>".rounded_or_na($seq_stats['prob'])."</td><td>".rounded_or_na($seq_stats['avgs']['C'])."</td><td>".rounded_or_na($seq_stats['avgs']['E'])."</td><td>".rounded_or_na($seq_stats['avgs']['C'] === 'n/a' ? 'n/a' : $seq_stats['avgs']['C']*$seq_stats['prob'])."</td><td>".rounded_or_na($seq_stats['avgs']['E'] === 'n/a' ? 'n/a' : $seq_stats['avgs']['E']*$seq_stats['prob'])."</td><td>".rounded_or_na($seq_stats['diff_avgs'])."</td><td>".rounded_or_na($seq_stats['diff_avgs'] === 'n/a' ? 'n/a' : $seq_stats['diff_avgs']*$seq_stats['prob'])."</td><td>".rounded_or_na($seq_stats['sums']['C'])."</td><td>".rounded_or_na($seq_stats['sums']['E'])."</td><td>".rounded_or_na($seq_stats['sums']['C'] === 'n/a' ? 'n/a' : $seq_stats['sums']['C']*$seq_stats['prob'])."</td><td>".rounded_or_na($seq_stats['sums']['E'] === 'n/a' ? 'n/a' : $seq_stats['sums']['E']*$seq_stats['prob'])."</td><td>".rounded_or_na($seq_stats['diff_sums'])."</td><td>".rounded_or_na($seq_stats['diff_sums'] === 'n/a' ? 'n/a' : $seq_stats['diff_sums']*$seq_stats['prob'])."</td></tr>\n";
+				}
 			}
-		}
-                echo '<tr><th>Totals:</th><th>'.rounded_or_na($per_seq_summary_stats['sum_prob']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_C_avgs']).'<th>'.rounded_or_na($per_seq_summary_stats['sum_E_avgs']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_C_avgs_prob'], $per_seq_summary_stats['sum_prob']).$fn1.'<th>'.rounded_or_na($per_seq_summary_stats['sum_E_avgs_prob'], $per_seq_summary_stats['sum_prob']).$fn1.'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_diff_avgs']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_diff_avgs_prob'], $per_seq_summary_stats['sum_prob']).$fn1.'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_C_sums']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_E_sums']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_C_sums_prob'], $per_seq_summary_stats['sum_prob']).$fn1.'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_E_sums_prob'], $per_seq_summary_stats['sum_prob']).$fn1.'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_diff_sums']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_diff_sums_prob'], $per_seq_summary_stats['sum_prob']).$fn1.'</th></tr>'."\n";
-		echo '<tr><th>Averages:</th><th>'.rounded_or_na($per_seq_avgs['avg_prob']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_C_avgs']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_E_avgs']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_C_avgs_prob']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_E_avgs_prob']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_diff_avgs']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_diff_avgs_prob']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_C_sums']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_E_sums']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_C_sums_prob']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_E_sums_prob']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_diff_sums']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_diff_sums_prob']).'</th></tr>'."\n";
+			echo '<tr><th>Totals:</th><th>'.rounded_or_na($per_seq_summary_stats['sum_prob']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_C_avgs']).'<th>'.rounded_or_na($per_seq_summary_stats['sum_E_avgs']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_C_avgs_prob'], $per_seq_summary_stats['sum_prob']).$fn1.'<th>'.rounded_or_na($per_seq_summary_stats['sum_E_avgs_prob'], $per_seq_summary_stats['sum_prob']).$fn1.'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_diff_avgs']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_diff_avgs_prob'], $per_seq_summary_stats['sum_prob']).$fn1.'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_C_sums']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_E_sums']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_C_sums_prob'], $per_seq_summary_stats['sum_prob']).$fn1.'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_E_sums_prob'], $per_seq_summary_stats['sum_prob']).$fn1.'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_diff_sums']).'</th><th>'.rounded_or_na($per_seq_summary_stats['sum_diff_sums_prob'], $per_seq_summary_stats['sum_prob']).$fn1.'</th></tr>'."\n";
+			echo '<tr><th>Averages:</th><th>'.rounded_or_na($per_seq_avgs['avg_prob']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_C_avgs']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_E_avgs']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_C_avgs_prob']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_E_avgs_prob']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_diff_avgs']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_diff_avgs_prob']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_C_sums']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_E_sums']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_C_sums_prob']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_E_sums_prob']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_diff_sums']).'</th><th>'.rounded_or_na($per_seq_avgs['avg_diff_sums_prob']).'</th></tr>'."\n";
 
-		echo '<tr><th>Differences (Totals):</th><th></th><th colspan="2">'.rounded_or_na($per_seq_diff_sum_avgs).'</th><th colspan="2">'.rounded_or_na($per_seq_diff_sum_avgs_prob, $per_seq_summary_stats['sum_prob']).'</th><th></th><th></th><th colspan="2">'.rounded_or_na($per_seq_diff_sum_sums).'</th><th colspan="2">'.rounded_or_na($per_seq_diff_sum_sums_prob, $per_seq_summary_stats['sum_prob']).'</th><th></th><th></th></tr>'."\n";
-		echo '<tr><th>Differences (Averages):</th><th></th><th colspan="2">'.rounded_or_na($per_seq_diff_avg_avgs).'</th><th colspan="2">'.rounded_or_na($per_seq_diff_avg_avgs_prob).'</th><th></th><th></th><th colspan="2">'.rounded_or_na($per_seq_diff_avg_sums).'</th><th colspan="2">'.rounded_or_na($per_seq_diff_avg_sums_prob).'</th><th></th><th></th></tr>'."\n";
+			echo '<tr><th>Differences (Totals):</th><th></th><th colspan="2">'.rounded_or_na($per_seq_diff_sum_avgs).'</th><th colspan="2">'.rounded_or_na($per_seq_diff_sum_avgs_prob, $per_seq_summary_stats['sum_prob']).'</th><th></th><th></th><th colspan="2">'.rounded_or_na($per_seq_diff_sum_sums).'</th><th colspan="2">'.rounded_or_na($per_seq_diff_sum_sums_prob, $per_seq_summary_stats['sum_prob']).'</th><th></th><th></th></tr>'."\n";
+			echo '<tr><th>Differences (Averages):</th><th></th><th colspan="2">'.rounded_or_na($per_seq_diff_avg_avgs).'</th><th colspan="2">'.rounded_or_na($per_seq_diff_avg_avgs_prob).'</th><th></th><th></th><th colspan="2">'.rounded_or_na($per_seq_diff_avg_sums).'</th><th colspan="2">'.rounded_or_na($per_seq_diff_avg_sums_prob).'</th><th></th><th></th></tr>'."\n";
 ?>
 </table>
 <?php
-	}
+		}
 
-	/* Show the per-number-of-calm/emotional-trials sum and average listing tables if necessary. */
-	if ($show_per_num_calm_lists) {
+		/* Show the per-number-of-calm/emotional-trials sum and average listing tables if necessary. */
+		if ($show_per_num_calm_lists) {
 ?>
 
 <h2>Per-<?php echo $lbl_seq_or_exp; ?> average arousals for given numbers of calm/emotional trials</h2>
 <?php
-		if ($show_sequence_table) echo "<p>As extracted from the above \"Per-$lbl_seq_or_exp arousals\" table.</p>\n";
+			if ($show_sequence_table) echo "<p>As extracted from the above \"Per-$lbl_seq_or_exp arousals\" table.</p>\n";
 ?>
 <table class="tbl_data tbl_fixed">
 <tr><th>#C</th><th>#E</th><th>Probability</th><th colspan="4">Average Arousals</th></tr>
 <tr><th></th><th></th><th></th><th colspan="2">Raw</th><th colspan="2">Weighted by probability</th></tr>
 <tr><th></th><th></th><th></th><th>C</th><th>E</th><th>C</th><th>E</th></tr>
 <?php
-		foreach ($per_num_calm_stats as $num_calm => $stats) {
-			echo "<tr><td>$num_calm</td><td>".($num_trials_per_seq * $num_seq_per_exp - $num_calm).'</td><td>'.rounded_or_na($stats['prob']).'</td><td>'.get_rounded_string_list($stats['C_avgs']).'</td><td>'.get_rounded_string_list($stats['E_avgs']).'</td><td>'.get_rounded_string_list($stats['C_avgs'], $stats['prob']).'</td><td>'.get_rounded_string_list($stats['E_avgs'], $stats['prob']).'</td></tr>'."\n";
-		}
+			foreach ($per_num_calm_stats as $num_calm => $stats) {
+				echo "<tr><td>$num_calm</td><td>".($num_trials_per_seq * $num_seq_per_exp - $num_calm).'</td><td>'.rounded_or_na($stats['prob']).'</td><td>'.get_rounded_string_list($stats['C_avgs']).'</td><td>'.get_rounded_string_list($stats['E_avgs']).'</td><td>'.get_rounded_string_list($stats['C_avgs'], $stats['prob']).'</td><td>'.get_rounded_string_list($stats['E_avgs'], $stats['prob']).'</td></tr>'."\n";
+			}
 ?>
 </table>
 
 <h2>Per-<?php echo $lbl_seq_or_exp; ?> sums of arousals for given numbers of calm/emotional trials</h2>
 
 <?php
-		if ($show_sequence_table) echo "<p>As extracted from the above \"Per-$lbl_seq_or_exp arousals\" table.</p>\n";
+			if ($show_sequence_table) echo "<p>As extracted from the above \"Per-$lbl_seq_or_exp arousals\" table.</p>\n";
 ?>
 
 
@@ -308,25 +312,25 @@ if (isset($_GET['num_trials_per_seq'])) {
 <tr><th></th><th></th><th></th><th colspan="2">Raw</th><th colspan="2">Weighted by probability</th></tr>
 <tr><th></th><th></th><th></th><th>C</th><th>E</th><th>C</th><th>E</th></tr>
 <?php
-		foreach ($per_num_calm_stats as $num_calm => $stats) {
-			echo "<tr><td>$num_calm</td><td>".($num_trials_per_seq * $num_seq_per_exp - $num_calm).'</td><td>'.rounded_or_na($stats['prob']).'</td><td>'.get_rounded_string_list($stats['C_sums']).'</td><td>'.get_rounded_string_list($stats['E_sums']).'</td><td>'.get_rounded_string_list($stats['C_sums'], $stats['prob']).'</td><td>'.get_rounded_string_list($stats['E_sums'], $stats['prob']).'</td></tr>'."\n";
-		}
+			foreach ($per_num_calm_stats as $num_calm => $stats) {
+				echo "<tr><td>$num_calm</td><td>".($num_trials_per_seq * $num_seq_per_exp - $num_calm).'</td><td>'.rounded_or_na($stats['prob']).'</td><td>'.get_rounded_string_list($stats['C_sums']).'</td><td>'.get_rounded_string_list($stats['E_sums']).'</td><td>'.get_rounded_string_list($stats['C_sums'], $stats['prob']).'</td><td>'.get_rounded_string_list($stats['E_sums'], $stats['prob']).'</td></tr>'."\n";
+			}
 ?>
 </table>
 
 <?php
-	}
+		}
 
-	/* Show the per-number-of-calm/emotional-trials summary table if necessary */
-	if ($show_per_num_calm) {
+		/* Show the per-number-of-calm/emotional-trials summary table if necessary */
+		if ($show_per_num_calm) {
 ?>
 
 <h2>Sums and averages of per-<?php echo $lbl_seq_or_exp; ?> sums and averages of arousals for given numbers of calm/emotional trials</h2>
 
 <?php
-		if ($show_per_num_calm_lists) {
-			echo '<p>As derived from the above two tables.</p>'."\n";
-		}
+			if ($show_per_num_calm_lists) {
+				echo '<p>As derived from the above two tables.</p>'."\n";
+			}
 ?>
 
 <table class="tbl_data tbl_fixed" id="id_per_num_calm_stats">
@@ -334,9 +338,9 @@ if (isset($_GET['num_trials_per_seq'])) {
 <tr><th></th><th></th><th></th><th></th><th></th><th colspan="2">Raw</th><th colspan="2">Weighted by #<?php echo $lbl_seq_or_exp.'s'; ?> and probability</th><th colspan="2">Raw</th><th colspan="2">Weighted by probability</th><th colspan="2">Raw</th><th colspan="2">Weighted by #<?php echo $lbl_seq_or_exp.'s'; ?> and probability</th><th colspan="2">Raw</th><th colspan="2">Weighted by probability</th></tr>
 <tr><th></th><th></th><th></th><th></th><th></th><th>C</th><th>E</th><th>C</th><th>E</th><th>C</th><th>E</th><th>C</th><th>E</th><th>C</th><th>E</th><th>C</th><th>E</th><th>C</th><th>E</th><th>C</th><th>E</th></tr>
 <?php
-		foreach ($per_num_calm_stats as $num_calm => $stats) {
-			echo "<tr><td>$num_calm</td><td>".($num_trials_per_seq * $num_seq_per_exp - $num_calm)."</td><td>{$stats['#seq']}</td><td>".rounded_or_na($stats['prob'])."</td><td>".rounded_or_na($stats['prob']*$stats['#seq'])."</td><td>".rounded_or_na($stats['C_avg_avgs'])."</td><td>".rounded_or_na($stats['E_avg_avgs'])."</td><td>".rounded_or_na($stats['C_weighted_avg_avgs'])."</td><td>".rounded_or_na($stats['E_weighted_avg_avgs'])."</td><td>".rounded_or_na($stats['C_sum_avgs'])."</td><td>".rounded_or_na($stats['E_sum_avgs'])."</td><td>".rounded_or_na($stats['C_sum_avgs']*$stats['prob']*$stats['#seq'])."</td><td>".rounded_or_na($stats['E_sum_avgs']*$stats['prob']*$stats['#seq'])."</td><td>".rounded_or_na($stats['C_avg_sums'])."</td><td>".rounded_or_na($stats['E_avg_sums'])."</td><td>".rounded_or_na($stats['C_avg_sums']*$stats['prob'])."</td><td>".rounded_or_na($stats['E_avg_sums']*$stats['prob'])."</td><td>".rounded_or_na($stats['C_sum_sums'])."</td><td>".rounded_or_na($stats['E_sum_sums'])."</td><td>".rounded_or_na($stats['C_sum_sums']*$stats['prob'])."</td><td>".rounded_or_na($stats['E_sum_sums']*$stats['prob'])."</td></tr>\n";
-		}
+			foreach ($per_num_calm_stats as $num_calm => $stats) {
+				echo "<tr><td>$num_calm</td><td>".($num_trials_per_seq * $num_seq_per_exp - $num_calm)."</td><td>{$stats['#seq']}</td><td>".rounded_or_na($stats['prob'])."</td><td>".rounded_or_na($stats['prob']*$stats['#seq'])."</td><td>".rounded_or_na($stats['C_avg_avgs'])."</td><td>".rounded_or_na($stats['E_avg_avgs'])."</td><td>".rounded_or_na($stats['C_weighted_avg_avgs'])."</td><td>".rounded_or_na($stats['E_weighted_avg_avgs'])."</td><td>".rounded_or_na($stats['C_sum_avgs'])."</td><td>".rounded_or_na($stats['E_sum_avgs'])."</td><td>".rounded_or_na($stats['C_sum_avgs']*$stats['prob']*$stats['#seq'])."</td><td>".rounded_or_na($stats['E_sum_avgs']*$stats['prob']*$stats['#seq'])."</td><td>".rounded_or_na($stats['C_avg_sums'])."</td><td>".rounded_or_na($stats['E_avg_sums'])."</td><td>".rounded_or_na($stats['C_avg_sums']*$stats['prob'])."</td><td>".rounded_or_na($stats['E_avg_sums']*$stats['prob'])."</td><td>".rounded_or_na($stats['C_sum_sums'])."</td><td>".rounded_or_na($stats['E_sum_sums'])."</td><td>".rounded_or_na($stats['C_sum_sums']*$stats['prob'])."</td><td>".rounded_or_na($stats['E_sum_sums']*$stats['prob'])."</td></tr>\n";
+			}
 ?>
 <tr><th>Totals:</th><th></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_#seq']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_prob']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_#seq_prob']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_C_avg_avgs']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_E_avg_avgs']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_C_weighted_avg_avgs']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_E_weighted_avg_avgs']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_C_sum_avgs']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_E_sum_avgs']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_C_weighted_sum_avgs']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_E_weighted_sum_avgs']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_C_avg_sums']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_E_avg_sums']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_C_weighted_avg_sums']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_E_weighted_avg_sums']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_C_sum_sums']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_E_sum_sums']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_C_weighted_sum_sums']); ?></th><th><?php echo rounded_or_na($per_num_calm_summary_stats['sum_E_weighted_sum_sums']); ?></th></tr>
 <tr><th>Averages:</th><th></th><th><?php echo rounded_or_na($num_calm_avgs['avg_#seq']); ?></th><th><?php echo rounded_or_na($num_calm_avgs['avg_prob']); ?></th><th><?php echo rounded_or_na($num_calm_avgs['avg_#seq_prob']); ?></th><th><?php echo rounded_or_na($num_calm_avgs['avg_C_avg_avgs']); ?></th><th><?php echo rounded_or_na($num_calm_avgs['avg_E_avg_avgs']); ?></th><th><?php echo rounded_or_na($num_calm_avgs['avg_C_weighted_avg_avgs']); ?></th><th><?php echo rounded_or_na($num_calm_avgs['avg_E_weighted_avg_avgs']); ?></th><th><?php echo rounded_or_na($num_calm_avgs['avg_C_sum_avgs']); ?></th><th><?php echo rounded_or_na($num_calm_avgs['avg_E_sum_avgs']); ?></th><th><?php echo rounded_or_na($num_calm_avgs['avg_C_weighted_sum_avgs']); ?></th><th><?php echo rounded_or_na($num_calm_avgs['avg_E_weighted_sum_avgs']); ?></th><th><?php echo rounded_or_na($num_calm_avgs['avg_C_avg_sums']); ?></th><th><?php echo rounded_or_na($num_calm_avgs['avg_E_avg_sums']); ?></th><th><?php echo rounded_or_na($num_calm_avgs['avg_C_weighted_avg_sums']); ?></th><th><?php echo rounded_or_na($num_calm_avgs['avg_E_weighted_avg_sums']); ?></th><th><?php echo rounded_or_na($num_calm_avgs['avg_C_sum_sums']); ?></th><th><?php echo rounded_or_na($num_calm_avgs['avg_E_sum_sums']); ?></th><th><?php echo rounded_or_na($num_calm_avgs['avg_C_weighted_sum_sums']); ?></th><th><?php echo rounded_or_na($num_calm_avgs['avg_E_weighted_sum_sums']); ?></th></tr>
@@ -345,51 +349,50 @@ if (isset($_GET['num_trials_per_seq'])) {
 </table>
 
 <?php
-	}
+		}
 
-	/* Show the expectation bias table if necessary */
-	if ($show_expectation_bias) {
+		/* Show the expectation bias table if necessary */
+		if ($show_expectation_bias) {
 ?>
 
 <h2>Expectation bias</h2>
 
-<?php
-		$exp_bias_pc_per_seq_diff = ($per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'] !=/*Not !== because might be a float*/ 0 && $per_seq_summary_stats['sum_diff_avgs_prob'] !== 'n/a') ? rounded_or_na($per_seq_summary_stats['sum_diff_avgs_prob'] / $per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'] * 100).'%' : 'n/a';
-
-		$do_wackermann = ($num_seq_per_exp == 1 && $arousal_model == 'linear');
-		if ($do_wackermann) {
-			$scale_wackermann = ($arousal_inc != 1);
-			$are_sampling = !($sample_start == 1 && $sample_inc == 1);
-			$wackermann_diff = calc_wackermann_diff($num_trials_per_seq, $prob_e);
-			if ($scale_wackermann) $wackermann_diff = bcmul($wackermann_diff, $arousal_inc);
-			$wackermann_label_appendage = '';
-			if ($scale_wackermann) {
-				$wackermann_label_appendage .= ' (scaled';
-			}
-			if ($are_sampling) {
-				$wackermann_label_appendage .= $wackermann_label_appendage == '' ? ' (' : ', ';
-				$wackermann_label_appendage .= 'without within-sequence sampling';
-			}
-			if ($wackermann_label_appendage) {
-				$wackermann_label_appendage .= ')';
-			}
-		}
-?>
-
 <table class="tbl_data">
 <tr><th>Method</th><th>Average bias in per-<?php echo $lbl_seq_or_exp; ?> average arousals for emotional versus calm trials</th><th>Average of per-<?php echo $lbl_seq_or_exp; ?> average arousals</th><th>Expectation bias as a percentage of average of per-<?php echo $lbl_seq_or_exp; ?> average arousals</th></tr>
-<tr><td>Average of per-<?php echo $lbl_seq_or_exp; ?> differences (excluding n/a's)</td><td><?php echo rounded_or_na($per_seq_summary_stats['sum_diff_avgs_prob'], $per_seq_summary_stats['sum_prob']); ?></td><td><?php echo rounded_or_na($per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'], $per_seq_summary_stats['sum_prob']); ?></td><td><?php echo $exp_bias_pc_per_seq_diff; ?></td></tr>
-<tr><td>Average of per-<?php echo $lbl_seq_or_exp; ?> differences (setting n/a's to zero)</td><td><?php echo rounded_or_na($per_seq_summary_stats['sum_diff_avgs_prob'] * $per_seq_summary_stats['count_diff_avgs_prob'] / $tot_samples, $per_seq_summary_stats['sum_prob']); ?></td><td><?php echo rounded_or_na($per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'] * $per_seq_summary_stats['count_diff_avgs_prob'] / $tot_samples, $per_seq_summary_stats['sum_prob']); ?></td><td><?php /*same as for above row since we scale denominator and numerator by the same factor*/echo $exp_bias_pc_per_seq_diff; ?></td></tr>
 <?php
-		if ($do_wackermann) {
+			foreach ($eb_arr as $a) {
+				$rounded_diff = $a['bcround'] ? bcround($a['diff'], $rounding_precision) : rounded_or_na($a['diff']);
+				echo "<tr><td>{$a['label']}</td><td>$rounded_diff</td><td>".rounded_or_na($a['avg_of_both']).'</td><td>'.rounded_or_na($a['bias'])."</td></tr>\n";
+			}
 ?>
-<tr><td>Wackermann's formula<?php echo $wackermann_label_appendage; ?></td><td><?php echo bcround($wackermann_diff, $rounding_precision); ?></td><td><?php if (!$are_sampling) echo rounded_or_na($per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'], $per_seq_summary_stats['sum_prob']); ?></td><td><?php if (!$are_sampling) echo ($per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'] !=/*Not !== because might be a float*/ 0) ? rounded_or_na($wackermann_diff / $per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'] * 100 * $per_seq_summary_stats['sum_prob']).'%' : 'n/a'; ?></td></tr>
-<?php
-		}
-?>
-<tr><td>Difference of per-<?php echo $lbl_seq_or_exp; ?> averages (excluding n/a's)</td><td><?php echo rounded_or_na($per_seq_diff_sum_avgs_prob, $per_seq_summary_stats['sum_prob']); ?></td><td><?php echo rounded_or_na($per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'], $per_seq_summary_stats['sum_prob']); ?></td><td><?php echo ($per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'] != 0 ? rounded_or_na($per_seq_diff_sum_avgs_prob / $per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'] * 100).'%' : 'n/a'); ?></td></tr>
 </table>
 
+<?php
+		}
+	} else { /* $num_repetitions > 1 */
+		$colspan_ar = $prob_e == 0.5 ? '4' : '2';
+		$colspan_eb = $do_wackermann ? '3' : '2';
+?>
+<table class="tbl_data">
+<tr><th>Repetition #</th><th colspan="<?php echo $colspan_ar; ?>">Average arousal</th><th colspan="<?php echo $colspan_eb; ?>">Expectation bias</th></tr>
+<tr><th></th><th colspan="2">Weighted by probability</th><?php if ($prob_e == 0.5) echo '<th colspan="2">Raw</th>'; ?><th colspan="<?php echo (2 + ($prob_e != 0.5 ? 2 : 0) + ($do_wackermann ? 1 : 0)); ?>"></tr>
+<tr><th></th><th>Calm</th><th>Emotional</th><?php if ($prob_e == 0.5) echo '<th>Calm</th><th>Emotional</th>'; ?><th>Difference first</th><th>Average first</th><?php if ($do_wackermann) echo '<th>Wackermann</th>'; ?></tr>
+<?php
+		for ($i = 0; $i < $num_repetitions; $i++) {
+			echo '<tr><td>'.($i+1).'</td><td>'.rounded_or_na($res_arr['avg_ar_C_wt'][$i]).'</td><td>'.rounded_or_na($res_arr['avg_ar_E_wt'][$i]).'</td>';
+			if ($prob_e == 0.5) {
+				echo '<td>'.rounded_or_na($res_arr['avg_ar_C_raw'][$i]).'</td><td>'.rounded_or_na($res_arr['avg_ar_E_raw'][$i]).'</td>';
+			}
+			echo '<td>'.rounded_or_na($res_arr['bias_diff_1st'][$i]).'%</td><td>'.rounded_or_na($res_arr['bias_avg_1st'][$i]).'%</td>';
+			if ($do_wackermann) {
+				echo '<td>'.rounded_or_na($res_arr['bias_wackermann'][$i]).'%</td>';
+			}
+			echo "</tr>\n";
+		}
+?>
+<tr><th>Average:</th><th><?php echo rounded_or_na(mean($res_arr['avg_ar_C_wt'])); ?></th><th><?php echo rounded_or_na(mean($res_arr['avg_ar_E_wt'])); ?></th><?php if ($prob_e == 0.5) echo '<th>'.rounded_or_na(mean($res_arr['avg_ar_C_raw'])).'</th><th>'.rounded_or_na(mean($res_arr['avg_ar_E_raw'])).'</th>'; ?><th><?php echo rounded_or_na(mean($res_arr['bias_diff_1st'])).'%'; ?></th><th><?php echo rounded_or_na(mean($res_arr['bias_avg_1st'])).'%'; ?></th><?php echo $do_wackermann ? '<th>'.rounded_or_na(mean($res_arr['bias_wackermann'])).'%</th>' : ''; ?></tr>
+<tr><th>Standard deviation:</th><th><?php echo rounded_or_na(sd($res_arr['avg_ar_C_wt'])); ?></th><th><?php echo rounded_or_na(sd($res_arr['avg_ar_E_wt'])); ?></th><?php if ($prob_e == 0.5) echo '<th>'.rounded_or_na(sd($res_arr['avg_ar_C_raw'])).'</th><th>'.rounded_or_na(sd($res_arr['avg_ar_E_raw'])).'</th>'; ?><th><?php echo rounded_or_na(sd($res_arr['bias_diff_1st'])).'%'; ?></th><th><?php echo rounded_or_na(sd($res_arr['bias_avg_1st'])).'%'; ?></th><?php echo $do_wackermann ? '<th>'.rounded_or_na(sd($res_arr['bias_wackermann'])).'%</th>' : ''; ?></tr>
+</table>
 <?php
 	}
 
@@ -470,6 +473,12 @@ if (isset($_GET['num_trials_per_seq'])) {
 
 <label for="id.sample_inc">trials, starting from (leftmost) trial number</label> <input type="text" id="id.sample_start" name="sample_start" value="<?php echo $sample_start; ?>"><br />
 
+<label for="id.num_repetitions">Repeat the scenario </label> <input type="text" id="id.num_repetitions" name="num_repetitions" value="<?php echo $num_repetitions; ?>"> times.<br />
+
+<input type="checkbox" id="id.settings_list_at_bottom" name="settings_list_at_bottom"<?php if ($settings_list_at_bottom) echo ' checked="checked"'; ?>><label for="id.settings_list_at_bottom">Show the static listing of settings at the bottom of the page rather than the top.</label><br />
+
+<p><b>The following settings apply only when the number of repetitions specified above is one.</b></p> 
+
 <input type="checkbox" id="id.show_sequence_table" name="show_sequence_table"<?php if ($show_sequence_table) echo ' checked="checked"'; ?>><label for="id.show_sequence_table">Show table of sequences/experiments. <b>Warning</b>: <i>unless the "Hide all rows but the summary rows" checkbox below is checked, this will result in many rows of sequences for even relatively small numbers of trials</i>: 2 to the power of the number of trials per experiment. This is e.g. 1024 rows of experiments when you enter 10 trials per experiment, and about a million rows when you enter 20 trials per experiment. <i>It will also greatly increase the resource (memory) requirements of the script.</i></label><br />
 
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<input type="checkbox" id="id.hide_all_but_summary" name="hide_all_but_summary"<?php if ($hide_all_but_summary) echo ' checked="checked"'; ?>><label for="id.hide_all_but_summary">Hide all rows but the summary rows.</label><br />
@@ -479,8 +488,6 @@ if (isset($_GET['num_trials_per_seq'])) {
 <input type="checkbox" id="id.show_per_num_calm" name="show_per_num_calm"<?php if ($show_per_num_calm) echo ' checked="checked"'; ?>><label for="id.show_per_num_calm">Show table of summary statistics for per-number-of-calm/emotional-experiments/sequences.</label><br />
 
 <input type="checkbox" id="id.show_expectation_bias" name="show_expectation_bias"<?php if ($show_expectation_bias) echo ' checked="checked"'; ?>><label for="id.show_expectation_bias">Show the expectation bias table.</label><br />
-
-<input type="checkbox" id="id.settings_list_at_bottom" name="settings_list_at_bottom"<?php if ($settings_list_at_bottom) echo ' checked="checked"'; ?>><label for="id.settings_list_at_bottom">Show the static listing of settings at the bottom of the page rather than the top.</label><br />
 
 <input type="submit" name="submit" value="Go">
 </form>
@@ -528,7 +535,7 @@ function output_settings($sequence_sampling_type, $num_samples, $num_seq_per_exp
 
 <p>E = emotional trial (after which arousal resets).</p>
 
-<p>C = calm trial (after which arousal increments).</p>
+<p>C = calm trial (after which arousal increments (linear model) or fixes to the static level (binary model)).</p>
 
 <p>Probability(E) = <?php echo $prob_e; ?>.</p>
 
@@ -537,6 +544,117 @@ function output_settings($sequence_sampling_type, $num_samples, $num_seq_per_exp
 <p>Arousal starts at reset level. Arousal level for a particular trial is the arousal level <i>preceding</i> that trial. Averages are with respect to these preceding arousal levels across all <i>sampled</i> calm/emotional trials in the sequence.</p> 
 
 <?php
+}
+
+function mean($arr) {
+	return count($arr) == 0 ? '' : array_sum($arr)/count($arr);
+}
+
+function sd($arr) {
+	if (count($arr) == 0) {
+		return '';
+	} else {
+		$mean = mean($arr);
+		$sq_var = 0;
+		foreach ($arr as $val) {
+			$sq_var += pow($val - $mean, 2);
+		}
+		return sqrt($sq_var/(count($arr)-1));
+	}
+}
+
+/* Initialise data structures */
+function init_globals() {
+	global $per_seq_stats, $per_num_calm_stats, $per_num_calm_summary_stats, $per_seq_summary_stats;
+
+	$per_seq_stats = $per_num_calm_stats = $per_num_calm_summary_stats = array();
+	$per_seq_summary_stats = array(
+		'sum_prob'        => 0,
+		'count_prob'      => 0,
+		'sum_C_avgs'      => 0,
+		'count_C_avgs'    => 0,
+		'sum_E_avgs'      => 0,
+		'count_E_avgs'    => 0,
+		'sum_C_sums'      => 0,
+		'count_C_sums'    => 0,
+		'sum_E_sums'      => 0,
+		'count_E_sums'    => 0,
+		'sum_diff_avgs'   => 0,
+		'count_diff_avgs' => 0,
+		'sum_diff_sums'   => 0,
+		'count_diff_sums' => 0,
+		'sum_C_avgs_prob'      => 0,
+		'count_C_avgs_prob'    => 0,
+		'sum_E_avgs_prob'      => 0,
+		'count_E_avgs_prob'    => 0,
+		'sum_C_sums_prob'      => 0,
+		'count_C_sums_prob'    => 0,
+		'sum_E_sums_prob'      => 0,
+		'count_E_sums_prob'    => 0,
+		'sum_diff_avgs_prob'   => 0,
+		'count_diff_avgs_prob' => 0,
+		'sum_diff_sums_prob'   => 0,
+		'count_diff_sums_prob' => 0,
+		'sum_all_avgs_for_defined_diffs_prob' => 0,
+	);
+}
+
+function get_expectation_bias_array(&$do_wackermann, &$are_sampling, &$wackermann_label_appendage) {
+	global $tot_samples, $per_seq_summary_stats, $lbl_seq_or_exp, $num_seq_per_exp, $arousal_model, $arousal_inc, $sample_start, $sample_inc, $num_trials_per_seq, $prob_e, $per_seq_diff_sum_avgs_prob;
+
+	$ret = array();
+
+	$exp_bias_pc_per_seq_diff = ($per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'] !=/*Not !== because might be a float*/ 0 && $per_seq_summary_stats['sum_diff_avgs_prob'] !== 'n/a') ? rounded_or_na($per_seq_summary_stats['sum_diff_avgs_prob'] / $per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'] * 100).'%' : 'n/a';
+
+	$ret['bias_diff_1st_excl_nas'] = array(
+		'label'       => "Average of per-$lbl_seq_or_exp differences (excluding n/a's)",
+		'diff'        => div_or_na($per_seq_summary_stats['sum_diff_avgs_prob'], $per_seq_summary_stats['sum_prob']),
+		'avg_of_both' => div_or_na($per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'], $per_seq_summary_stats['sum_prob']),
+		'bias'        => $exp_bias_pc_per_seq_diff,
+		'bcround'     => false,
+	);
+	$ret['bias_diff_1st_nas_to_0'] = array(
+		'label'       => "Average of per-$lbl_seq_or_exp differences (setting n/a's to zero)",
+		'diff'        => div_or_na($per_seq_summary_stats['sum_diff_avgs_prob'] * $per_seq_summary_stats['count_diff_avgs_prob'] / $tot_samples, $per_seq_summary_stats['sum_prob']),
+		'avg_of_both' => div_or_na($per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'] * $per_seq_summary_stats['count_diff_avgs_prob'] / $tot_samples, $per_seq_summary_stats['sum_prob']),
+		/*same as for above entry since we scale denominator and numerator by the same factor*/
+		'bias'        => $exp_bias_pc_per_seq_diff,
+		'bcround'     => false,
+	);
+	$do_wackermann = ($num_seq_per_exp == 1 && $arousal_model == 'linear');
+	if ($do_wackermann) {
+		$scale_wackermann = ($arousal_inc != 1);
+		$are_sampling = !($sample_start == 1 && $sample_inc == 1);
+		$wackermann_diff = calc_wackermann_diff($num_trials_per_seq, $prob_e);
+		if ($scale_wackermann) $wackermann_diff = bcmul($wackermann_diff, $arousal_inc);
+		$wackermann_label_appendage = '';
+		if ($scale_wackermann) {
+			$wackermann_label_appendage .= ' (scaled';
+		}
+		if ($are_sampling) {
+			$wackermann_label_appendage .= $wackermann_label_appendage == '' ? ' (' : ', ';
+			$wackermann_label_appendage .= 'without within-sequence sampling';
+		}
+		if ($wackermann_label_appendage) {
+			$wackermann_label_appendage .= ')';
+		}
+		$ret['wackermann'] = array(
+			'label'       => "Wackermann's formula $wackermann_label_appendage",
+			'diff'        => $wackermann_diff,
+			'avg_of_both' => $are_sampling ? '' : div_or_na($per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'], $per_seq_summary_stats['sum_prob']),
+			'bias'        => $are_sampling ? '' : (($per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'] !=/*Not !== because might be a float*/ 0) ? ($wackermann_diff / $per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'] * 100 * $per_seq_summary_stats['sum_prob']).'%' : 'n/a'),
+			'bcround'     => true,
+		);
+	}
+	$ret['bias_avg_1st'] = array(
+		'label'       => "Difference of per-$lbl_seq_or_exp averages (excluding n/a's)",
+		'diff'        => div_or_na($per_seq_diff_sum_avgs_prob, $per_seq_summary_stats['sum_prob']),
+		'avg_of_both' => div_or_na($per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'], $per_seq_summary_stats['sum_prob']),
+		'bias'        => $per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'] != 0 ? rounded_or_na($per_seq_diff_sum_avgs_prob / $per_seq_summary_stats['sum_all_avgs_for_defined_diffs_prob'] * 100).'%' : 'n/a',
+		'bcround'     => false,
+	);
+
+	return $ret;
 }
 
 /* Format a sequence for display: $seq might in fact represent multiple
@@ -612,6 +730,10 @@ function get_avgs($stats, $items) {
 	return $ret;
 }
 
+function div_or_na($number, $divisor = 1) {
+	return $number === 'n/a' ? $number : $number /= $divisor;
+}
+
 function rounded_or_na($number, $unweight_factor = 1) {
 	global $rounding_precision;
 
@@ -649,7 +771,7 @@ function calc_stats_r($seq_part, $depth, $num_trials_per_exp, &$per_seq_stats, &
 
 /* $sequence represents an experiment of $num_seq_per_exp sequences of $num_trials_per_seq trials */
 function add_seq($sequence, &$per_seq_stats, &$per_num_calm_stats, &$per_seq_summary_stats, $arousal_model) {
-	global $reset_arousal, $arousal_inc, $sample_start, $sample_inc, $prob_e, $num_trials_per_seq, $show_sequence_table, $show_per_num_calm, $show_per_num_calm_lists, $hide_all_but_summary;
+	global $reset_arousal, $arousal_inc, $sample_start, $sample_inc, $prob_e, $num_trials_per_seq, $show_sequence_table, $show_per_num_calm, $show_per_num_calm_lists, $hide_all_but_summary, $num_repetitions;
 
 	$counts = $sampled_counts = $sampled_sums = array('C' => 0, 'E' => 0, 'all' => 0);
 	$arousal = $reset_arousal;
@@ -699,7 +821,7 @@ function add_seq($sequence, &$per_seq_stats, &$per_num_calm_stats, &$per_seq_sum
 	$per_seq_summary_stats['sum_prob'] += $prob;
 	$per_seq_summary_stats['count_prob']++;
 	if ($avgs['C'] !== 'n/a') {
-		if ($show_sequence_table) {
+		if ($num_repetitions > 1 || $show_sequence_table) {
 			$per_seq_summary_stats['sum_C_avgs'] += $avgs['C'];
 			$per_seq_summary_stats['count_C_avgs']++;
 		}
@@ -707,7 +829,7 @@ function add_seq($sequence, &$per_seq_stats, &$per_num_calm_stats, &$per_seq_sum
 		$per_seq_summary_stats['count_C_avgs_prob']++;
 	}
 	if ($avgs['E'] !== 'n/a') {
-		if ($show_sequence_table) {
+		if ($num_repetitions > 1 || $show_sequence_table) {
 			$per_seq_summary_stats['sum_E_avgs'] += $avgs['E'];
 			$per_seq_summary_stats['count_E_avgs']++;
 		}
